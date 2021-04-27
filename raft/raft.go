@@ -16,8 +16,8 @@ package raft
 
 import (
 	"errors"
-
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"math/rand"
 )
 
 // None is a placeholder node ID used when there is no leader.
@@ -165,6 +165,13 @@ func newRaft(c *Config) *Raft {
 		panic(err.Error())
 	}
 	// Your Code Here (2A).
+	r := Raft{id: c.ID, Term: 0, State: StateFollower, heartbeatTimeout: c.HeartbeatTick, electionTimeout: c.ElectionTick}
+	r.RaftLog = newLog(c.Storage)
+	r.Prs = make(map[uint64]*Progress)
+	for _, peer_id := range c.peers{
+		r.Prs[peer_id] = nil
+	}
+	return &r
 	return nil
 }
 
@@ -183,32 +190,232 @@ func (r *Raft) sendHeartbeat(to uint64) {
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
+	switch r.State {
+	case StateFollower:
+		r.electionElapsed++
+		if (r.electionElapsed >= r.electionTimeout){
+			r.electionElapsed = 0
+			//r.msgs = append(r.msgs, pb.Message{From: r.id, To: r.id, Term: r.Term, MsgType: pb.MessageType_MsgHup})
+			r.becomeCandidate() // Does this should be done in Step() ?
+			r.raiseVote()
+		}
+	case StateCandidate:
+		r.electionElapsed++
+		if (r.electionElapsed >= r.electionTimeout){
+			r.electionElapsed = 0
+			//r.msgs = append(r.msgs, pb.Message{From: r.id, To: r.id, Term: r.Term, MsgType: pb.MessageType_MsgHup})
+			r.becomeCandidate()
+			r.raiseVote()
+		}
+	case StateLeader:
+		r.heartbeatElapsed++
+		if (r.heartbeatElapsed >= r.heartbeatTimeout){
+			r.heartbeatElapsed = 0
+			for peer_id, _ := range r.Prs {
+				if (peer_id != r.id){
+					r.msgs = append(r.msgs, pb.Message{From: r.id, To: peer_id, Term: r.Term, MsgType: pb.MessageType_MsgHeartbeat})
+				}
+				//{From: 1, To: 2, Term: 1, MsgType: pb.MessageType_MsgHeartbeat},
+			}
+		}
+	}
 }
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
+	if (term < r.Term || lead == r.id){
+		return
+	}
 	// Your Code Here (2A).
+	r.State = StateFollower
+	//r.heartbeatElapsed = 0
+	r.Vote = None
+	r.electionElapsed = 0
+	r.electionTimeout = rand.Int()%10 + 10
+	r.Term, r.Lead = term, lead
+}
+
+func (r *Raft) raiseVote(){
+	if r.State != StateCandidate{
+		return
+	}
+	for peer_id, _ := range r.Prs {
+		if (peer_id != r.id) { // skip itself
+			r.votes[peer_id] = false
+			r.msgs = append(r.msgs, pb.Message{From: r.id, To: peer_id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVote})
+		}
+	}
 }
 
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	r.State = StateCandidate
+	r.Term++
+	r.electionTimeout = rand.Int()%10 + 10
+	r.electionElapsed = 0
+	r.Vote = None
+	r.votes = make(map[uint64]bool)
+	r.msgs = make([]pb.Message, 0)
+	// vote for self
+	r.votes[r.id] = true
+	r.Vote = r.id
+	if (len(r.Prs) == 1){
+		r.becomeLeader()
+	}
+}
+
+func (r *Raft) announceLeader(){
+	if r.State != StateLeader{
+		return
+	}
+	for peer_id, _ := range r.Prs {
+		if (peer_id != r.id) { // skip itself
+			r.votes[peer_id] = false
+			r.msgs = append(r.msgs, pb.Message{From: r.id, To: peer_id, Term: r.Term, MsgType: pb.MessageType_MsgAppend})
+		}
+	}
 }
 
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	r.State = StateLeader
+	r.Lead = r.id
+	r.heartbeatElapsed = 0
+}
+
+func (r *Raft) StepFollower(m pb.Message){
+	if (m.MsgType == pb.MessageType_MsgHup){
+		r.becomeCandidate()
+		r.raiseVote()
+		return
+	}
+
+	if (r.Term > m.Term) {
+		return
+	}
+	if (r.Term < m.Term){
+		r.becomeFollower(m.Term, m.From)
+		//r.Step(m)
+		r.StepFollower(m)
+		return
+	}
+
+	switch m.MsgType {
+	case pb.MessageType_MsgHeartbeat:
+		r.electionElapsed = 0
+	case pb.MessageType_MsgRequestVote:
+		msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse}
+		if (None == r.Vote){
+			localLastIndex := r.RaftLog.LastIndex()
+			localLogTerm, err := r.RaftLog.Term(localLastIndex)
+			if (err != nil){
+				break
+			}
+			if (localLogTerm < m.LogTerm || (localLogTerm == m.LogTerm && localLastIndex <= m.Index)){
+				msg.Reject = false
+				r.Vote = m.From
+			} else{
+				msg.Reject = true
+			}
+		} else if (m.From == r.Vote){
+			msg.Reject = false
+		} else {
+			msg.Reject = true
+		}
+		r.msgs = append(r.msgs, msg)
+	}
+}
+
+func (r *Raft) StepCandidate(m pb.Message){
+	if (m.MsgType == pb.MessageType_MsgHup){
+		r.becomeCandidate()
+		r.raiseVote()
+		return
+	}
+
+	if (r.Term > m.Term) {
+		return
+	}
+	if (r.Term < m.Term){
+		r.becomeFollower(m.Term, m.From)
+		//r.Step(m)
+		r.StepFollower(m)
+		return
+	}
+
+	switch m.MsgType {
+	case pb.MessageType_MsgHeartbeat:
+		r.becomeFollower(m.Term, m.From)
+	case pb.MessageType_MsgRequestVote:
+		msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: true}
+		r.msgs = append(r.msgs, msg)
+	case pb.MessageType_MsgRequestVoteResponse:
+		if (!m.Reject){
+			r.votes[m.From] = true
+			count := 0
+			for _, vote := range r.votes{
+				if vote{
+					count++
+				}
+			}
+			if (count >= len(r.Prs)/2 + 1){
+				r.becomeLeader()
+				r.announceLeader()
+			}
+		}
+	case pb.MessageType_MsgAppend:
+		r.becomeFollower(m.Term, m.From)
+	}
+}
+func (r *Raft) StepLeader(m pb.Message){
+	// step local message
+	switch m.MsgType{
+	//case pb.MessageType_MsgHup:
+	//	r.becomeCandidate()
+	//	r.raiseVote()
+	//	return
+	case  pb.MessageType_MsgBeat:
+		for peer_id, _ := range r.Prs {
+			if (peer_id != r.id){
+				r.msgs = append(r.msgs, pb.Message{From: r.id, To: peer_id, Term: r.Term, MsgType: pb.MessageType_MsgHeartbeat})
+			}
+		}
+	}
+
+	if (r.Term > m.Term) {
+		return
+	}
+	if (r.Term < m.Term){
+		r.becomeFollower(m.Term, m.From)
+		//r.Step(m)
+		r.StepFollower(m)
+		return
+	}
+
+	switch m.MsgType {
+	case pb.MessageType_MsgRequestVote:
+		msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: true}
+		r.msgs = append(r.msgs, msg)
+	}
 }
 
 // Step the entrance of handle message, see `MessageType`
 // on `eraftpb.proto` for what msgs should be handled
 func (r *Raft) Step(m pb.Message) error {
 	// Your Code Here (2A).
+	//if _, ok := r.Prs[m.From]; !ok{
+	//	return nil
+	//}
 	switch r.State {
 	case StateFollower:
+		r.StepFollower(m)
 	case StateCandidate:
+		r.StepCandidate(m)
 	case StateLeader:
+		r.StepLeader(m)
 	}
 	return nil
 }
