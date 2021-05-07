@@ -375,6 +375,12 @@ func (r *Raft) becomeLeader() {
 	r.Prs[r.id].Match = r.RaftLog.LastIndex()
 	r.Prs[r.id].Next = r.Prs[r.id].Match + 1
 
+	// Commit the noop entry immediately if there is only one raft entity
+	if len(r.Prs) == 1 {
+		r.RaftLog.committed = r.RaftLog.LastIndex()
+		return
+	}
+
 	// Broadcast append entry message
 	msg := pb.Message{From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgAppend, Index: prevLogIndex, LogTerm: prevLogTerm, Entries: []*pb.Entry{&noopEntry}, Commit: r.RaftLog.committed}
 	r.bcastMessage(msg)
