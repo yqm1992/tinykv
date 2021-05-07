@@ -300,6 +300,17 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.Term, r.Lead = term, lead
 }
 
+// bcastMessage broadcast message to peers
+func (r *Raft) bcastMessage(m pb.Message) {
+	for peer_id, _ := range r.Prs{
+		if peer_id == r.id {
+			continue
+		}
+		m.To = peer_id
+		r.msgs = append(r.msgs, m)
+	}
+}
+
 // raiseVote sends vote request RPC to peers
 func (r *Raft) raiseVote(){
 	if r.State != StateCandidate{
@@ -314,17 +325,13 @@ func (r *Raft) raiseVote(){
 		return
 	}
 
-	for peer_id, _ := range r.Prs {
-		if peer_id == r.id {
-			continue
-		}
-		msg := pb.Message{From: r.id, To: peer_id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVote}
-		lastIndex := r.RaftLog.LastIndex()
-		logTerm, _ := r.RaftLog.Term(lastIndex)
-		msg.Index = lastIndex
-		msg.LogTerm = logTerm
-		r.msgs = append(r.msgs, msg)
-	}
+	// Broadcast request vote message
+	msg := pb.Message{From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVote}
+	lastIndex := r.RaftLog.LastIndex()
+	logTerm, _ := r.RaftLog.Term(lastIndex)
+	msg.Index = lastIndex
+	msg.LogTerm = logTerm
+	r.bcastMessage(msg)
 }
 
 // becomeCandidate transform this peer's state to candidate
@@ -369,13 +376,8 @@ func (r *Raft) becomeLeader() {
 	r.Prs[r.id].Next = r.Prs[r.id].Match + 1
 
 	// Broadcast append entry message
-	for peer_id, _ := range r.Prs{
-		if peer_id == r.id {
-			continue
-		}
-		msg := pb.Message{From: r.id, To: peer_id, Term: r.Term, MsgType: pb.MessageType_MsgAppend, Index: prevLogIndex, LogTerm: prevLogTerm, Entries: []*pb.Entry{&noopEntry}, Commit: r.RaftLog.committed}
-		r.msgs = append(r.msgs, msg)
-	}
+	msg := pb.Message{From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgAppend, Index: prevLogIndex, LogTerm: prevLogTerm, Entries: []*pb.Entry{&noopEntry}, Commit: r.RaftLog.committed}
+	r.bcastMessage(msg)
 }
 
 // StepFollower the entrance of handle message for follower
