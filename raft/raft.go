@@ -339,21 +339,6 @@ func (r *Raft) becomeCandidate() {
 	r.msgs = make([]pb.Message, 0)
 }
 
-// announceLeader send Append Request RPC to peers
-func (r *Raft) announceLeader(){
-	if r.State != StateLeader{
-		return
-	}
-	for peer_id, _ := range r.Prs {
-		if peer_id == r.id {
-			continue
-		}
-		//r.votes[peer_id] = false
-		//r.sendNoopEntry(peer_id) // send noop entry(no data)
-		r.sendAppend(peer_id)
-	}
-}
-
 // becomeLeader transform this peer's state to leader
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
@@ -363,7 +348,7 @@ func (r *Raft) becomeLeader() {
 	r.heartbeatElapsed = 0
 	lastIndex := r.RaftLog.LastIndex()
 	for peer_id, peer := range r.Prs{
-		if (peer_id == r.id){
+		if peer_id == r.id {
 			peer.Match = lastIndex
 			peer.Next = lastIndex + 1
 			continue
@@ -371,18 +356,26 @@ func (r *Raft) becomeLeader() {
 		peer.Match = 0
 		peer.Next = max(lastIndex, 1)
 	}
-	// append a noop entry
-	//r.RaftLog.committed = 0
-	//r.RaftLog.stabled = 0
-	//r.RaftLog.applied = 0
 
-	lastIndex = r.RaftLog.LastIndex()
-	noopEntry := pb.Entry{Term: r.Term, Index: lastIndex+1, Data: nil}
+	prevLogIndex := r.RaftLog.LastIndex()
+	prevLogTerm, _ := r.RaftLog.Term(prevLogIndex)
+
+	// Append a noop entry
+	noopEntry := pb.Entry{Term: r.Term, Index: prevLogIndex+1, Data: nil}
 	r.RaftLog.entries = append(r.RaftLog.entries, noopEntry)
 
 	// Update self's Match and Next info
 	r.Prs[r.id].Match = r.RaftLog.LastIndex()
 	r.Prs[r.id].Next = r.Prs[r.id].Match + 1
+
+	// Broadcast append entry message
+	for peer_id, _ := range r.Prs{
+		if peer_id == r.id {
+			continue
+		}
+		msg := pb.Message{From: r.id, To: peer_id, Term: r.Term, MsgType: pb.MessageType_MsgAppend, Index: prevLogIndex, LogTerm: prevLogTerm, Entries: []*pb.Entry{&noopEntry}, Commit: r.RaftLog.committed}
+		r.msgs = append(r.msgs, msg)
+	}
 }
 
 // StepFollower the entrance of handle message for follower
@@ -447,7 +440,6 @@ func (r *Raft) StepCandidate(m pb.Message){
 		quorum := len(r.Prs)/2 + 1
 		if (acceptCount >= quorum){
 			r.becomeLeader()
-			r.announceLeader()
 		} else if len(r.votes) - acceptCount >= quorum {
 			r.becomeFollower(m.Term, None)
 		}
