@@ -68,11 +68,12 @@ func newLog(storage Storage) *RaftLog {
 	if err3 != nil {
 		return nil
 	}
+
 	raftLog := RaftLog{
 		storage: storage,
 		entries: entries,
 		stabled: lastIndex,
-		}
+	}
 	return &raftLog
 }
 
@@ -87,14 +88,15 @@ func (l *RaftLog) maybeCompact() {
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
 	if (len(l.entries) == 0){
-		return nil
+		return []pb.Entry{}
 	}
 	if (l.stabled < l.entries[0].Index) { // l.stabled == 0
 		return l.entries
 	}
 	stabledOffset := uint64(l.stabled - l.entries[0].Index)
 	if uint64(stabledOffset+1) >= uint64(len(l.entries)){
-		return nil
+		//return nil
+		return []pb.Entry{}
 	}
 	return l.entries[stabledOffset+1:]
 }
@@ -103,7 +105,7 @@ func (l *RaftLog) unstableEntries() []pb.Entry {
 func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 	// Your Code Here (2A).
 	if (len(l.entries) == 0 || l.applied == l.committed){
-		return nil
+		return []pb.Entry{}
 	}
 
 	firstIndex := l.entries[0].Index
