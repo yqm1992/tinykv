@@ -171,7 +171,7 @@ func newRaft(c *Config) *Raft {
 	}
 	// InitialState() couldn't be called in newLog(), which could cause nil pointer dereference
 	hardState, _, _ := c.Storage.InitialState()
-	r.RaftLog.stableCommitted = hardState.Commit
+	//r.RaftLog.stableCommitted = hardState.Commit
 	r.RaftLog.committed = hardState.Commit
 	r.Term = hardState.Term
 	r.Vote = hardState.Vote
