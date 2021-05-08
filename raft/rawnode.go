@@ -167,6 +167,16 @@ func (rn *RawNode) Ready() Ready {
 // HasReady called when RawNode user need to check if any Ready pending.
 func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
+	raftLog := rn.Raft.RaftLog
+	if raftLog.stabled < raftLog.LastIndex(){
+		return true
+	}
+	if raftLog.prevCommitted < raftLog.committed {
+		return true
+	}
+	if len(rn.Raft.msgs) > 0 {
+		return true
+	}
 	return false
 }
 
