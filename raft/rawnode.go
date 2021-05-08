@@ -152,9 +152,9 @@ func (rn *RawNode) Ready() Ready {
 	unstableEntries := raftLog.unstableEntries()
 	committedEntries := []pb.Entry{}
 
-	if raftLog.committed >  raftLog.stableCommitted {
+	if raftLog.committed >  raftLog.prevCommitted {
 		offset := raftLog.entries[0].Index
-		committedEntries = raftLog.entries[raftLog.stableCommitted - offset + 1 : raftLog.committed - offset + 1]
+		committedEntries = raftLog.entries[raftLog.prevCommitted - offset + 1 : raftLog.committed - offset + 1]
 	}
 
 	return Ready{
@@ -174,7 +174,7 @@ func (rn *RawNode) HasReady() bool {
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
-	rn.Raft.RaftLog.stableCommitted = rn.Raft.RaftLog.committed
+	rn.Raft.RaftLog.prevCommitted = rn.Raft.RaftLog.committed
 	lastIndex := rn.Raft.RaftLog.LastIndex()
 	rn.Raft.RaftLog.stabled = lastIndex
 	rn.Raft.msgs = make([]pb.Message, 0)
