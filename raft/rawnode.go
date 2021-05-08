@@ -185,8 +185,7 @@ func (rn *RawNode) HasReady() bool {
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
 	rn.Raft.RaftLog.prevCommitted = rn.Raft.RaftLog.committed
-	lastIndex := rn.Raft.RaftLog.LastIndex()
-	rn.Raft.RaftLog.stabled = lastIndex
+	rn.Raft.RaftLog.stabled = rn.Raft.RaftLog.LastIndex()
 	rn.Raft.msgs = make([]pb.Message, 0)
 
 }
