@@ -314,9 +314,6 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 	for _, entry := range entries {
 		raftWB.SetMeta(meta.RaftLogKey(ps.region.Id, entry.Index), &entry)
 	}
-	if err := ps.Engines.WriteRaft(raftWB); err != nil {
-		return err
-	}
 	ps.raftState.LastIndex = entries[len(entries)-1].Index
 	ps.raftState.LastTerm = entries[len(entries)-1].Term
 	return nil
