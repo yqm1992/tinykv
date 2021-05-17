@@ -152,9 +152,14 @@ func (rn *RawNode) Ready() Ready {
 	unstableEntries := raftLog.unstableEntries()
 	committedEntries := []pb.Entry{}
 
-	if raftLog.committed >  raftLog.prevCommitted {
+	if raftLog.committed >  raftLog.prevCommitted && len(raftLog.entries) > 0 {
 		offset := raftLog.entries[0].Index
-		committedEntries = raftLog.entries[raftLog.prevCommitted - offset + 1 : raftLog.committed - offset + 1]
+		// prevCommitted == 0 indicates raft just started
+		if raftLog.prevCommitted == 0 {
+			committedEntries = raftLog.entries[ : raftLog.committed - offset + 1]
+		} else {
+			committedEntries = raftLog.entries[raftLog.prevCommitted - offset + 1 : raftLog.committed - offset + 1]
+		}
 	}
 
 	return Ready{
