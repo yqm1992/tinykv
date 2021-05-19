@@ -16,6 +16,7 @@ package raft
 
 import (
 	"errors"
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"math/rand"
 )
@@ -292,6 +293,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 		return
 	}
 	// Your Code Here (2A).
+	log.Infof("Id = %v becomes follower in term %v", r.id, r.Term)
 	r.State = StateFollower
 	//r.heartbeatElapsed = 0
 	r.Vote = None
@@ -337,6 +339,7 @@ func (r *Raft) raiseVote(){
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	log.Infof("Id = %v becomes candidate in term %v", r.id, r.Term)
 	r.State = StateCandidate
 	r.Term++
 	r.electionTimeout = rand.Int()%10 + 10
@@ -350,6 +353,7 @@ func (r *Raft) becomeCandidate() {
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	log.Infof("Id = %v becomes leader in term %v", r.id, r.Term)
 	r.State = StateLeader
 	r.Lead = r.id
 	r.heartbeatElapsed = 0
