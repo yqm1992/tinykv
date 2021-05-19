@@ -185,7 +185,7 @@ func (rn *RawNode) HasReady() bool {
 	if raftLog.stabled < raftLog.LastIndex(){
 		return true
 	}
-	if raftLog.prevCommitted < raftLog.committed {
+	if raftLog.prevCommitted < raftLog.committed && len(raftLog.entries) > 0 {
 		return true
 	}
 	if len(rn.Raft.msgs) > 0 {
