@@ -621,11 +621,8 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 
 	// Commit entries
 	if m.Commit > r.RaftLog.committed {
-		if maxMatchIndex <= m.Commit {
-			r.RaftLog.committed = maxMatchIndex
-		} else {
-			r.RaftLog.committed = m.Commit
-		}
+		r.RaftLog.committed = min(maxMatchIndex, m.Commit)
+		log.Infof("id = %v, term = %v, committed  = %v", r.id, r.Term, r.RaftLog.committed)
 	}
 
 	//// Apply Entries
