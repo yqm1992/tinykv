@@ -691,6 +691,7 @@ func (r *Raft) handleAppendPropose(m pb.Message){
 	// Commit entries immediately if there is only one raft entity
 	if len(r.Prs) == 1{
 		r.RaftLog.committed = r.RaftLog.LastIndex()
+		log.Infof("(from leader) id = %v, term = %v, committed  = %v", r.id, r.Term, r.RaftLog.committed)
 		return
 	}
 
@@ -754,6 +755,7 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 
 	// Send Append to all peers if committed id has changed
 	if commitedChanged == true {
+		log.Infof("(from leader) id = %v, term = %v, committed  = %v", r.id, r.Term, r.RaftLog.committed)
 		for peer_id, _ := range r.Prs {
 			if peer_id == r.id {
 				continue
