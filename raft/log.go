@@ -123,7 +123,7 @@ func (l *RaftLog) nextEnts() (ents []pb.Entry) {
 func (l *RaftLog) LastIndex() uint64 {
 	// Your Code Here (2A).
 	if len(l.entries) == 0{
-		return 0
+		return l.committed
 	}
 	return l.entries[0].Index + uint64(len(l.entries)) - 1
 }
