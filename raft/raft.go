@@ -365,7 +365,7 @@ func (r *Raft) becomeLeader() {
 			continue
 		}
 		peer.Match = 0
-		peer.Next = max(lastIndex, max(r.RaftLog.committed+1, r.RaftLog.LastIndex()))
+		peer.Next = max(r.RaftLog.committed+1, lastIndex)
 	}
 
 	prevLogIndex := r.RaftLog.LastIndex()
