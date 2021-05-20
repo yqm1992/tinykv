@@ -588,6 +588,10 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 	for ; offset < sharedLen; offset++ {
 		curLocalIndex := m.Index + offset + 1
 		if curLocallogTerm, _ := r.RaftLog.Term(curLocalIndex); curLocallogTerm != m.Entries[offset].Term {
+			// check crash position
+			if curLocalIndex <= r.RaftLog.committed {
+				log.Fatalf("crash index should bigger than committed index, now crash index = %v, committed index = %v", curLocalIndex, r.RaftLog.committed)
+			}
 			// Drop the entries after conflict position
 			curLocalOffset := curLocalIndex - r.RaftLog.entries[0].Index
 			r.RaftLog.entries = r.RaftLog.entries[:curLocalOffset]
