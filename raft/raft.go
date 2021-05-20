@@ -293,7 +293,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 		return
 	}
 	// Your Code Here (2A).
-	log.Infof("Id = %v becomes follower in term %v", r.id, r.Term)
+	log.Infof("Id = %v becomes follower (lead = %v) in term %v", r.id, r.Lead, r.Term)
 	r.State = StateFollower
 	//r.heartbeatElapsed = 0
 	r.Vote = None
