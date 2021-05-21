@@ -2,6 +2,7 @@ package raftstore
 
 import (
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"time"
 
 	"github.com/Connor1996/badger/y"
@@ -38,6 +39,14 @@ func newPeerMsgHandler(peer *peer, ctx *GlobalContext) *peerMsgHandler {
 	}
 }
 
+func findCallback(entry  *eraftpb.Entry, proposals []*proposal) (*message.Callback, []*proposal){
+	return nil, proposals
+}
+
+func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
+	return
+}
+
 func (d *peerMsgHandler) HandleRaftReady() {
 	if d.stopped {
 		return
@@ -61,8 +70,11 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		if entry.Data == nil {
 			continue
 		}
-		// TODO complete apply process
-		log.Infof("apply entry [index: %v, term: %v]", entry.Index, entry.Term)
+		// get proposal for this entry
+		var cb *message.Callback
+		cb, d.proposals = findCallback(&entry, d.proposals)
+
+		d.applyEntry(&entry, cb)
 	}
 
 	// Advance
