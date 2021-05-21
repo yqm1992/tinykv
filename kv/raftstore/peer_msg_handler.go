@@ -177,7 +177,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			return
 		}
 	}
-	}
 }
 
 func (d *peerMsgHandler) HandleRaftReady() {
