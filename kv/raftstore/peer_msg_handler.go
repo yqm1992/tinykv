@@ -150,6 +150,27 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		return
 	}
 	// Your Code Here (2B).
+	// Currently, leader handles only one request in a message
+	if len(msg.Requests) != 1 {
+		err = errors.Errorf("a RaftCmd can include only one request, now the number of requests is %v", len(msg.Requests))
+		cb.Done(ErrResp(err))
+		return
+	}
+
+	// TODO need to check if key is in range [startKey, endKey)
+
+	data, err2 := msg.Marshal()
+	if err2 != nil {
+		cb.Done(ErrResp(err2))
+		return
+	}
+	prop := proposal{d.nextProposalIndex(), d.Term(), cb}
+	err2 = d.RaftGroup.Propose(data)
+	if err2 != nil {
+		cb.Done(ErrResp(err2))
+		return
+	}
+	d.proposals = append(d.proposals, &prop)
 }
 
 func (d *peerMsgHandler) onTick() {
