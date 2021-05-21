@@ -1,6 +1,7 @@
 package raftstore
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
@@ -87,6 +88,23 @@ func (d *peerMsgHandler) updateStateMachine(kvWB *engine_util.WriteBatch, applie
 	}
 }
 
+// rangeValid check if the key is in this region
+func (d *peerMsgHandler) rangeValid(key []byte) bool {
+	if d.Region().GetStartKey() != nil {
+		result := bytes.Compare(key, d.Region().GetStartKey())
+		if result < 0 {
+			return false
+		}
+	}
+	if d.Region().GetEndKey() != nil {
+		result := bytes.Compare(key, d.Region().GetEndKey())
+		if result >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	if entry == nil {
 		log.Fatalf("Cannot apply nil entry")
@@ -114,6 +132,7 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	case raft_cmdpb.CmdType_Get:
 		log.Infof("here comes a request : CmdType_Get")
 		d.updateStateMachine(kvWB, entry.Index, cb)
+
 		if cb == nil {
 			return
 		}
@@ -123,6 +142,13 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			return
 		}
 		get := req.Get
+
+		if ! d.rangeValid(get.Key) {
+			err = errors.Errorf("key is out of current region")
+			cb.Done(ErrResp(err))
+			return
+		}
+
 		val, err := engine_util.GetCF(d.peerStorage.Engines.Kv, get.Cf, get.Key)
 		if err != nil{
 			cb.Done(ErrResp(err))
@@ -148,6 +174,15 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 				cb.Done(ErrResp(err))
 				return
 			}
+		}
+
+		if ! d.rangeValid(put.Key) {
+			d.updateStateMachine(kvWB, entry.Index, cb)
+			if cb != nil {
+				err = errors.Errorf("key is out of current region")
+				cb.Done(ErrResp(err))
+			}
+			return
 		}
 
 		kvWB.SetCF(put.Cf, put.Key, put.Value)
@@ -178,6 +213,16 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 				return
 			}
 		}
+
+		if ! d.rangeValid(del.Key) {
+			d.updateStateMachine(kvWB, entry.Index, cb)
+			if cb != nil {
+				err = errors.Errorf("key is out of current region")
+				cb.Done(ErrResp(err))
+			}
+			return
+		}
+
 		kvWB.DeleteCF(del.Cf, del.Key)
 		d.updateStateMachine(kvWB, entry.Index, cb)
 		if cb != nil {
