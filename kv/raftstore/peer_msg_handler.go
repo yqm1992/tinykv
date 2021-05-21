@@ -2,6 +2,8 @@ package raftstore
 
 import (
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
+	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 	"time"
 
@@ -69,7 +71,59 @@ func findCallback(entry  *eraftpb.Entry, proposals []*proposal) (*message.Callba
 }
 
 func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
-	return
+	if entry == nil || entry.Data == nil {
+		return
+	}
+	raftCmdRequest := raft_cmdpb.RaftCmdRequest{}
+	err := raftCmdRequest.Unmarshal(entry.Data)
+	if err != nil {
+		log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
+	}
+	req := raftCmdRequest.Requests[0]
+	switch req.CmdType {
+	case raft_cmdpb.CmdType_Invalid:
+		log.Infof("here comes a request : CmdType_Invalid")
+	case raft_cmdpb.CmdType_Get:
+		log.Infof("here comes a request : CmdType_Get")
+	case raft_cmdpb.CmdType_Put:
+		//log.Infof("here comes a request : CmdType_Put")
+		put := req.Put
+		if put == nil {
+			err = errors.Errorf("request.Put is nil")
+			if cb != nil{
+				cb.Done(ErrResp(err))
+				return
+			}
+		}
+		kvWB := new(engine_util.WriteBatch)
+		kvWB.SetCF(put.Cf, put.Key, put.Value)
+		d.peerStorage.applyState.AppliedIndex = entry.Index
+		kvWB.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
+		if err = d.peerStorage.Engines.WriteKV(kvWB); err != nil {
+			if cb != nil{
+				cb.Done(ErrResp(err))
+			}
+			log.Fatalf("failed to write data to kvDB")
+		}
+		if cb != nil {
+			resp := &raft_cmdpb.RaftCmdResponse{
+				Header: &raft_cmdpb.RaftResponseHeader{},
+				Responses: []*raft_cmdpb.Response{
+					{
+						CmdType: raft_cmdpb.CmdType_Put,
+						Put: &raft_cmdpb.PutResponse{},
+						//Get: &raft_cmdpb.GetResponse{Value: va},
+					},
+				},
+			}
+			cb.Done(resp)
+			return
+		}
+	case raft_cmdpb.CmdType_Delete:
+		log.Infof("here comes a request : CmdType_Delete")
+	case raft_cmdpb.CmdType_Snap:
+		log.Infof("here comes a request : CmdType_Snap")
+	}
 }
 
 func (d *peerMsgHandler) HandleRaftReady() {
