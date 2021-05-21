@@ -107,6 +107,7 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		//log.Infof("here comes a request : CmdType_Put")
 		put := req.Put
 		if put == nil {
+			d.updateStateMachine(kvWB, entry.Index, cb)
 			err = errors.Errorf("request.Put is nil")
 			if cb != nil{
 				cb.Done(ErrResp(err))
