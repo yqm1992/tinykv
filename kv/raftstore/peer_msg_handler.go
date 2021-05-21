@@ -43,6 +43,30 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	// Your Code Here (2B).
+	if !d.RaftGroup.HasReady() {
+		return
+	}
+	ready := d.RaftGroup.Ready()
+	_, err := d.peerStorage.SaveReadyState(&ready)
+	if err != nil {
+		log.Fatalf("Failed to save ready state")
+		return
+	}
+
+	// send messages
+	d.Send(d.ctx.trans, ready.Messages)
+
+	// apply new committed entries
+	for _, entry := range ready.CommittedEntries {
+		if entry.Data == nil {
+			continue
+		}
+		// TODO complete apply process
+		log.Infof("apply entry [index: %v, term: %v]", entry.Index, entry.Term)
+	}
+
+	// Advance
+	d.RaftGroup.Advance(ready)
 }
 
 func (d *peerMsgHandler) HandleMsg(msg message.Msg) {
