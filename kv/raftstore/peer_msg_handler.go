@@ -123,6 +123,27 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		log.Infof("here comes a request : CmdType_Delete")
 	case raft_cmdpb.CmdType_Snap:
 		log.Infof("here comes a request : CmdType_Snap")
+		if req.Snap == nil {
+			err = errors.Errorf("request.Snap is nil")
+			if cb != nil{
+				cb.Done(ErrResp(err))
+				return
+			}
+		}
+		if cb != nil {
+			resp := &raft_cmdpb.RaftCmdResponse{
+				Header: &raft_cmdpb.RaftResponseHeader{},
+				Responses: []*raft_cmdpb.Response{
+					{
+						CmdType: raft_cmdpb.CmdType_Snap,
+						Snap: &raft_cmdpb.SnapResponse{Region: d.Region()},
+					},
+				},
+			}
+			cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
+			cb.Done(resp)
+			return
+		}
 	}
 }
 
