@@ -144,6 +144,30 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		}
 	case raft_cmdpb.CmdType_Delete:
 		log.Infof("here comes a request : CmdType_Delete")
+		del := req.Delete
+		if del == nil {
+			d.updateStateMachine(kvWB, entry.Index, cb)
+			err = errors.Errorf("request.Delete is nil")
+			if cb != nil{
+				cb.Done(ErrResp(err))
+				return
+			}
+		}
+		kvWB.DeleteCF(del.Cf, del.Key)
+		d.updateStateMachine(kvWB, entry.Index, cb)
+		if cb != nil {
+			resp := &raft_cmdpb.RaftCmdResponse{
+				Header: &raft_cmdpb.RaftResponseHeader{},
+				Responses: []*raft_cmdpb.Response{
+					{
+						CmdType: raft_cmdpb.CmdType_Delete,
+						Delete: &raft_cmdpb.DeleteResponse{},
+					},
+				},
+			}
+			cb.Done(resp)
+			return
+		}
 	case raft_cmdpb.CmdType_Snap:
 		log.Infof("here comes a request : CmdType_Snap")
 		d.updateStateMachine(kvWB, entry.Index, cb)
