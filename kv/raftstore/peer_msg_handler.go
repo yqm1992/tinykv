@@ -169,11 +169,11 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		put := req.Put
 		if put == nil {
 			d.updateStateMachine(kvWB, entry.Index, cb)
-			err = errors.Errorf("request.Put is nil")
 			if cb != nil{
+				err = errors.Errorf("request.Put is nil")
 				cb.Done(ErrResp(err))
-				return
 			}
+			return
 		}
 
 		if ! d.rangeValid(put.Key) {
@@ -207,11 +207,11 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		del := req.Delete
 		if del == nil {
 			d.updateStateMachine(kvWB, entry.Index, cb)
-			err = errors.Errorf("request.Delete is nil")
 			if cb != nil{
+				err = errors.Errorf("request.Delete is nil")
 				cb.Done(ErrResp(err))
-				return
 			}
+			return
 		}
 
 		if ! d.rangeValid(del.Key) {
@@ -242,11 +242,11 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		log.Infof("here comes a request : CmdType_Snap")
 		d.updateStateMachine(kvWB, entry.Index, cb)
 		if req.Snap == nil {
-			err = errors.Errorf("request.Snap is nil")
 			if cb != nil{
+				err = errors.Errorf("request.Snap is nil")
 				cb.Done(ErrResp(err))
-				return
 			}
+			return
 		}
 		if cb != nil {
 			resp := &raft_cmdpb.RaftCmdResponse{
