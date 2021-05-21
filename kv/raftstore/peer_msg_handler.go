@@ -113,6 +113,31 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		}
 	case raft_cmdpb.CmdType_Get:
 		log.Infof("here comes a request : CmdType_Get")
+		d.updateStateMachine(kvWB, entry.Index, cb)
+		if cb == nil {
+			return
+		}
+		if req.Get == nil {
+			err = errors.Errorf("request.Put is nil")
+			cb.Done(ErrResp(err))
+			return
+		}
+		get := req.Get
+		val, err := engine_util.GetCF(d.peerStorage.Engines.Kv, get.Cf, get.Key)
+		if err != nil{
+			cb.Done(ErrResp(err))
+			return
+		}
+		resp := &raft_cmdpb.RaftCmdResponse{
+			Header: &raft_cmdpb.RaftResponseHeader{},
+			Responses: []*raft_cmdpb.Response{
+				{
+					CmdType: raft_cmdpb.CmdType_Get,
+					Get: &raft_cmdpb.GetResponse{Value: val},
+				},
+			},
+		}
+		cb.Done(resp)
 	case raft_cmdpb.CmdType_Put:
 		//log.Infof("here comes a request : CmdType_Put")
 		put := req.Put
