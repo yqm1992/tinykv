@@ -172,6 +172,11 @@ func newRaft(c *Config) *Raft {
 	}
 	// InitialState() couldn't be called in newLog(), which could cause nil pointer dereference
 	hardState, _, _ := c.Storage.InitialState()
+	if c.Applied > hardState.Commit {
+		log.Fatalf("applied = %v > committed = %v", c.Applied, hardState.Commit)
+	}
+	// TODO: currenrly, prevCommitted actually plays the role of "applied", we should rename it to "applied" later
+	r.RaftLog.prevCommitted = c.Applied
 	r.RaftLog.committed = hardState.Commit
 	r.Term = hardState.Term
 	r.Vote = hardState.Vote
