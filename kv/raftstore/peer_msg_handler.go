@@ -168,6 +168,15 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			cb.Done(resp)
 			return
 		}
+	default:
+		log.Errorf("here comes a request with unknown cmd_type: %v", req.CmdType)
+		d.updateStateMachine(kvWB, entry.Index, cb)
+		if cb != nil{
+			err = errors.Errorf("invalid cmd_type: %v", req.CmdType)
+			cb.Done(ErrResp(err))
+			return
+		}
+	}
 	}
 }
 
