@@ -42,7 +42,7 @@ func newPeerMsgHandler(peer *peer, ctx *GlobalContext) *peerMsgHandler {
 }
 
 // findCallback finds the corresponding callback of entry, and remove it from proposals
-func findCallback(entry  *eraftpb.Entry, proposals []*proposal) (*message.Callback, []*proposal){
+func (d *peerMsgHandler) findCallback(entry  *eraftpb.Entry, proposals []*proposal) (*message.Callback, []*proposal){
 	if entry == nil || entry.Data == nil {
 		return nil, proposals
 	}
@@ -172,7 +172,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		}
 		// get proposal for this entry
 		var cb *message.Callback
-		cb, d.proposals = findCallback(&entry, d.proposals)
+		cb, d.proposals = d.findCallback(&entry, d.proposals)
 
 		d.applyEntry(&entry, cb)
 	}
