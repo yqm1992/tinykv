@@ -88,7 +88,12 @@ func (d *peerMsgHandler) updateStateMachine(kvWB *engine_util.WriteBatch, applie
 }
 
 func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
-	if entry == nil || entry.Data == nil {
+	if entry == nil {
+		log.Fatalf("Cannot apply nil entry")
+	}
+	kvWB := new(engine_util.WriteBatch)
+	if entry.Data == nil {
+		d.updateStateMachine(kvWB, entry.Index, cb)
 		return
 	}
 	raftCmdRequest := raft_cmdpb.RaftCmdRequest{}
@@ -97,7 +102,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
 	}
 	req := raftCmdRequest.Requests[0]
-	kvWB := new(engine_util.WriteBatch)
 	switch req.CmdType {
 	case raft_cmdpb.CmdType_Invalid:
 		log.Infof("here comes a request : CmdType_Invalid")
@@ -180,9 +184,6 @@ func (d *peerMsgHandler) HandleRaftReady() {
 
 	// apply new committed entries
 	for _, entry := range ready.CommittedEntries {
-		if entry.Data == nil {
-			continue
-		}
 		// get proposal for this entry
 		var cb *message.Callback
 		cb, d.proposals = d.findCallback(&entry, d.proposals)
