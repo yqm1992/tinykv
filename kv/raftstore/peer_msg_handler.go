@@ -104,7 +104,13 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	req := raftCmdRequest.Requests[0]
 	switch req.CmdType {
 	case raft_cmdpb.CmdType_Invalid:
-		log.Infof("here comes a request : CmdType_Invalid")
+		log.Errorf("here comes a request : CmdType_Invalid")
+		d.updateStateMachine(kvWB, entry.Index, cb)
+		err = errors.Errorf("invalid cmd_type: %v", req.CmdType)
+		if cb != nil{
+			cb.Done(ErrResp(err))
+			return
+		}
 	case raft_cmdpb.CmdType_Get:
 		log.Infof("here comes a request : CmdType_Get")
 	case raft_cmdpb.CmdType_Put:
