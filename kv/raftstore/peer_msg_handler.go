@@ -140,6 +140,7 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		log.Infof("here comes a request : CmdType_Delete")
 	case raft_cmdpb.CmdType_Snap:
 		log.Infof("here comes a request : CmdType_Snap")
+		d.updateStateMachine(kvWB, entry.Index, cb)
 		if req.Snap == nil {
 			err = errors.Errorf("request.Snap is nil")
 			if cb != nil{
