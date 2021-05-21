@@ -70,6 +70,23 @@ func (d *peerMsgHandler) findCallback(entry  *eraftpb.Entry, proposals []*propos
 	return prop.cb, proposals
 }
 
+func (d *peerMsgHandler) updateStateMachine(kvWB *engine_util.WriteBatch, appliedIndex uint64, cb *message.Callback){
+	if kvWB == nil {
+		log.Fatalf("kvWB is nil")
+	}
+	if appliedIndex != d.peerStorage.applyState.AppliedIndex+1 {
+		log.Fatalf("appliedIndex (%v) != last_appliedIndex(%v) + 1", appliedIndex, d.peerStorage.applyState.AppliedIndex)
+	}
+	d.peerStorage.applyState.AppliedIndex = appliedIndex
+	kvWB.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
+	if err := d.peerStorage.Engines.WriteKV(kvWB); err != nil {
+		if cb != nil{
+			cb.Done(ErrResp(err))
+		}
+		log.Fatalf("failed to write data to kvDB")
+	}
+}
+
 func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	if entry == nil || entry.Data == nil {
 		return
@@ -80,6 +97,7 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
 	}
 	req := raftCmdRequest.Requests[0]
+	kvWB := new(engine_util.WriteBatch)
 	switch req.CmdType {
 	case raft_cmdpb.CmdType_Invalid:
 		log.Infof("here comes a request : CmdType_Invalid")
@@ -95,16 +113,10 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 				return
 			}
 		}
-		kvWB := new(engine_util.WriteBatch)
+
 		kvWB.SetCF(put.Cf, put.Key, put.Value)
-		d.peerStorage.applyState.AppliedIndex = entry.Index
-		kvWB.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
-		if err = d.peerStorage.Engines.WriteKV(kvWB); err != nil {
-			if cb != nil{
-				cb.Done(ErrResp(err))
-			}
-			log.Fatalf("failed to write data to kvDB")
-		}
+		d.updateStateMachine(kvWB, entry.Index, cb)
+
 		if cb != nil {
 			resp := &raft_cmdpb.RaftCmdResponse{
 				Header: &raft_cmdpb.RaftResponseHeader{},
