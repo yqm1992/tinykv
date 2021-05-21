@@ -39,8 +39,33 @@ func newPeerMsgHandler(peer *peer, ctx *GlobalContext) *peerMsgHandler {
 	}
 }
 
+// findCallback finds the corresponding callback of entry, and remove it from proposals
 func findCallback(entry  *eraftpb.Entry, proposals []*proposal) (*message.Callback, []*proposal){
-	return nil, proposals
+	if entry == nil || entry.Data == nil {
+		return nil, proposals
+	}
+	// loop when len(proposals) == 0 or the first proposal is corresponding to the entry
+	// if the proposal is crash with the entry, drops all the entries of same term t, and continue the loop
+	for len(proposals) > 0 && (proposals[0].index != entry.Index || proposals[0].term != entry.Term) {
+		t := proposals[0].term
+		// drop the proposals that term == t
+		i := 0
+		for i < len(proposals) {
+			if proposals[i].term != t {
+				break
+			} else {
+				i++
+			}
+		}
+		proposals = proposals[i:]
+	}
+	if len(proposals) == 0 {
+		return nil, proposals
+	}
+	// remove prop from proposals
+	prop := proposals[0]
+	proposals = proposals[1:]
+	return prop.cb, proposals
 }
 
 func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
