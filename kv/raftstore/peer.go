@@ -137,6 +137,9 @@ func NewPeer(storeId uint64, cfg *config.Config, engines *engine_util.Engines, r
 	if err != nil {
 		return nil, err
 	}
+	for _, cur := range region.Peers {
+		raftGroup.Raft.Prs[cur.Id] = &raft.Progress{}
+	}
 	p := &peer{
 		Meta:                  meta,
 		regionId:              region.GetId(),
