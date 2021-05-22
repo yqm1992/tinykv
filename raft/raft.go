@@ -564,6 +564,7 @@ func (r *Raft)handleVoteRequest(m pb.Message){
 		if (localLogTerm < m.LogTerm || (localLogTerm == m.LogTerm && localLastIndex <= m.Index)){
 			msg.Reject = false
 			r.Vote = m.From
+			log.Infof("vote: (id = %v) ---> (id = %v) in term %v", r.id, r.Vote, r.Term)
 		} else{
 			msg.Reject = true
 		}
