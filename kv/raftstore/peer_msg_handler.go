@@ -47,27 +47,31 @@ func (d *peerMsgHandler) findCallback(entry  *eraftpb.Entry, proposals []*propos
 	if entry == nil || entry.Data == nil {
 		return nil, proposals
 	}
-	// loop when len(proposals) == 0 or the first proposal is corresponding to the entry
-	// if the proposal is crash with the entry, drops all the entries of same term t, and continue the loop
-	for len(proposals) > 0 && (proposals[0].index != entry.Index || proposals[0].term != entry.Term) {
-		t := proposals[0].term
-		// drop the proposals that term == t
-		i := 0
-		for i < len(proposals) {
-			if proposals[i].term != t {
-				break
-			} else {
-				i++
-			}
+
+	// skip the expired proposals
+	curPos := 0
+	for ;curPos < len(proposals); curPos++ {
+		if proposals[curPos].term < entry.Term {
+			continue
+		} else if proposals[curPos].term == entry.Term && proposals[curPos].index < entry.Index {
+			continue
+		} else {
+			break
 		}
-		proposals = proposals[i:]
 	}
-	if len(proposals) == 0 {
+
+	// drop the expired proposals
+	proposals = proposals[curPos:]
+
+	// corresponding proposal does not exist
+	if len(proposals) == 0 || proposals[0].term != entry.Term || proposals[0].index != entry.Index {
 		return nil, proposals
 	}
-	// remove prop from proposals
+
+	// get the corresponding proposal
 	prop := proposals[0]
 	proposals = proposals[1:]
+
 	return prop.cb, proposals
 }
 
@@ -296,7 +300,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		// get proposal for this entry
 		var cb *message.Callback
 		cb, d.proposals = d.findCallback(&entry, d.proposals)
-
+		
 		d.applyEntry(&entry, cb)
 	}
 
