@@ -332,7 +332,7 @@ func (r *Raft) bcastMessage(m pb.Message) {
 // raiseVote sends vote request RPC to peers
 func (r *Raft) raiseVote(){
 	if r.State != StateCandidate{
-		return
+		log.Fatalf("only candidate can raise vote, current state: %v", r.State)
 	}
 
 	if len(r.Prs) == 1{
