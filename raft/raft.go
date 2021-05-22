@@ -335,9 +335,6 @@ func (r *Raft) raiseVote(){
 		return
 	}
 
-	// Vote for self
-	r.Vote = r.id
-	r.votes[r.id] = true
 	if len(r.Prs) == 1{
 		r.becomeLeader()
 		return
@@ -366,6 +363,11 @@ func (r *Raft) becomeCandidate() {
 	r.Vote = None
 	r.votes = make(map[uint64]bool)
 	r.msgs = make([]pb.Message, 0)
+
+	// Vote for self
+	r.Vote = r.id
+	r.votes[r.id] = true
+
 	// log should be printed when term will not be changed
 	log.Infof("Id = %v becomes candidate in term %v", r.id, r.Term)
 }
