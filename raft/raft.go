@@ -301,8 +301,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	if lead == r.id {
 		log.Fatalf("id = %v can not become follower of itself", r.id)
 	}
-	
-	log.Infof("Id = %v becomes follower (lead = %v) in term %v", r.id, r.Lead, r.Term)
+
 	r.State = StateFollower
 	//r.heartbeatElapsed = 0
 
@@ -314,6 +313,9 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.electionElapsed = 0
 	r.electionTimeout = rand.Int()%10 + 10
 	r.Term, r.Lead = term, lead
+	
+	// log should be printed when term will not be changed
+	log.Infof("Id = %v becomes follower (lead = %v) in term %v", r.id, r.Lead, r.Term)
 }
 
 // bcastMessage broadcast message to peers
@@ -353,7 +355,6 @@ func (r *Raft) raiseVote(){
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
-	log.Infof("Id = %v becomes candidate in term %v", r.id, r.Term)
 	r.State = StateCandidate
 	r.Term++
 	r.electionTimeout = rand.Int()%10 + 10
@@ -361,6 +362,8 @@ func (r *Raft) becomeCandidate() {
 	r.Vote = None
 	r.votes = make(map[uint64]bool)
 	r.msgs = make([]pb.Message, 0)
+	// log should be printed when term will not be changed
+	log.Infof("Id = %v becomes candidate in term %v", r.id, r.Term)
 }
 
 // becomeLeader transform this peer's state to leader
