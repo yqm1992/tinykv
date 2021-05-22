@@ -313,7 +313,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.electionElapsed = 0
 	r.electionTimeout = rand.Int()%10 + 10
 	r.Term, r.Lead = term, lead
-	
+
 	// log should be printed when term will not be changed
 	log.Infof("Id = %v becomes follower (lead = %v) in term %v", r.id, r.Lead, r.Term)
 }
@@ -355,6 +355,10 @@ func (r *Raft) raiseVote(){
 // becomeCandidate transform this peer's state to candidate
 func (r *Raft) becomeCandidate() {
 	// Your Code Here (2A).
+	if r.State == StateLeader {
+		log.Fatalf("leader can't become candidate")
+	}
+
 	r.State = StateCandidate
 	r.Term++
 	r.electionTimeout = rand.Int()%10 + 10
@@ -370,7 +374,12 @@ func (r *Raft) becomeCandidate() {
 func (r *Raft) becomeLeader() {
 	// Your Code Here (2A).
 	// NOTE: Leader should propose a noop entry on its term
+	if r.State != StateCandidate {
+		log.Fatalf("only candidate can become leader, current state = %v", r.State)
+	}
+
 	log.Infof("Id = %v becomes leader in term %v", r.id, r.Term)
+
 	r.State = StateLeader
 	r.Lead = r.id
 	r.heartbeatElapsed = 0
