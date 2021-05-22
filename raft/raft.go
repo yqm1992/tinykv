@@ -294,10 +294,14 @@ func (r *Raft) tick() {
 
 // becomeFollower transform this peer's state to Follower
 func (r *Raft) becomeFollower(term uint64, lead uint64) {
-	if (term < r.Term || lead == r.id){
-		return
-	}
 	// Your Code Here (2A).
+	if term < r.Term {
+		log.Fatalf("term(%v) < currentTerm(%v)", term, r.Term)
+	}
+	if lead == r.id {
+		log.Fatalf("id = %v can not become follower of itself", r.id)
+	}
+	
 	log.Infof("Id = %v becomes follower (lead = %v) in term %v", r.id, r.Lead, r.Term)
 	r.State = StateFollower
 	//r.heartbeatElapsed = 0
