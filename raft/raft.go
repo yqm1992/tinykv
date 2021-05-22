@@ -301,7 +301,12 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	log.Infof("Id = %v becomes follower (lead = %v) in term %v", r.id, r.Lead, r.Term)
 	r.State = StateFollower
 	//r.heartbeatElapsed = 0
-	r.Vote = None
+
+	// reset Vote info only when term has changed
+	if term > r.Term {
+		r.Vote = None
+	}
+
 	r.electionElapsed = 0
 	r.electionTimeout = rand.Int()%10 + 10
 	r.Term, r.Lead = term, lead
