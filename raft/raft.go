@@ -597,7 +597,8 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		} else {
 			if logTerm, _ := r.RaftLog.Term(m.Index); logTerm != m.LogTerm {
 				// Drop the entries which Index >= m.Index
-				r.RaftLog.entries = r.RaftLog.entries[:m.Index]
+				mOffset := m.Index - r.RaftLog.entries[0].Index
+				r.RaftLog.entries = r.RaftLog.entries[:mOffset]
 
 				//Update stable Index
 				r.RaftLog.stabled = min(r.RaftLog.stabled, r.RaftLog.LastIndex())
