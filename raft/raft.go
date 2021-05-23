@@ -597,11 +597,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 		} else {
 			if logTerm, _ := r.RaftLog.Term(m.Index); logTerm != m.LogTerm {
 				// Drop the entries which Index >= m.Index
-				mOffset := m.Index - r.RaftLog.entries[0].Index
-				r.RaftLog.entries = r.RaftLog.entries[:mOffset]
-
-				//Update stable Index
-				r.RaftLog.stabled = min(r.RaftLog.stabled, r.RaftLog.LastIndex())
+				r.RaftLog.dropEntries(m.Index)
 
 				// Reply reject with the biggest possible match index
 				msg.Index = m.Index - 1
@@ -623,10 +619,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 				log.Fatalf("crash index should bigger than committed index, now crash index = %v, committed index = %v", curLocalIndex, r.RaftLog.committed)
 			}
 			// Drop the entries after conflict position
-			curLocalOffset := curLocalIndex - r.RaftLog.entries[0].Index
-			r.RaftLog.entries = r.RaftLog.entries[:curLocalOffset]
-			//Update stable Index
-			r.RaftLog.stabled = min(r.RaftLog.stabled, r.RaftLog.LastIndex())
+			r.RaftLog.dropEntries(curLocalIndex)
 			break
 		}
 	}

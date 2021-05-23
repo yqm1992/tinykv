@@ -16,6 +16,7 @@ package raft
 
 import (
 	"fmt"
+	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
 )
 
@@ -144,4 +145,28 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 
 	offset :=  i - l.entries[0].Index
 	return l.entries[offset].Term, nil
+}
+
+// Offset return the offset of the given index
+func (l *RaftLog) Offset(i uint64) (uint64, error) {
+	if len(l.entries) == 0 {
+		return 0, fmt.Errorf("the log is empty")
+	}
+	firstIndex := l.entries[0].Index
+	lastIndex := l.LastIndex()
+	if i < firstIndex || i > lastIndex {
+		return 0, fmt.Errorf("the given index = %d exceeds the valid range [%d, %d]", i, firstIndex, lastIndex)
+	}
+	return i - firstIndex, nil
+}
+
+// dropEntries drop the entries with index >= startIndex
+func (l *RaftLog) dropEntries(startIndex uint64) {
+	startOffset, err := l.Offset(startIndex)
+	if err != nil {
+		log.Fatal(err)
+	}
+	l.entries = l.entries[:startOffset]
+	// update stableIndex
+	l.stabled = min(l.stabled, l.LastIndex())
 }
