@@ -154,17 +154,7 @@ func (rn *RawNode) Ready() Ready {
 
 	raftLog := rn.Raft.RaftLog
 	unstableEntries := raftLog.unstableEntries()
-	committedEntries := []pb.Entry{}
-
-	if raftLog.committed >  raftLog.prevCommitted && len(raftLog.entries) > 0 {
-		offset := raftLog.entries[0].Index
-		// prevCommitted == 0 indicates raft just started
-		if raftLog.prevCommitted == 0 {
-			committedEntries = raftLog.entries[ : raftLog.committed - offset + 1]
-		} else {
-			committedEntries = raftLog.entries[raftLog.prevCommitted - offset + 1 : raftLog.committed - offset + 1]
-		}
-	}
+	committedEntries := raftLog.nextEnts()
 
 	return Ready{
 		HardState: hardState,
@@ -185,7 +175,7 @@ func (rn *RawNode) HasReady() bool {
 	if raftLog.stabled < raftLog.LastIndex(){
 		return true
 	}
-	if raftLog.prevCommitted < raftLog.committed && len(raftLog.entries) > 0 {
+	if raftLog.applied < raftLog.committed {
 		return true
 	}
 	if len(rn.Raft.msgs) > 0 {
@@ -199,7 +189,7 @@ func (rn *RawNode) HasReady() bool {
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
 	rn.hardState = pb.HardState{Term: rn.Raft.Term, Vote: rn.Raft.Vote, Commit: rn.Raft.RaftLog.committed}
-	rn.Raft.RaftLog.prevCommitted = rn.Raft.RaftLog.committed
+	rn.Raft.RaftLog.applied = rn.Raft.RaftLog.committed
 	rn.Raft.RaftLog.stabled = rn.Raft.RaftLog.LastIndex()
 	rn.Raft.msgs = make([]pb.Message, 0)
 

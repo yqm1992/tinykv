@@ -54,8 +54,6 @@ type RaftLog struct {
 	pendingSnapshot *pb.Snapshot
 
 	// Your Data Here (2A).
-	// Used by RawNode.Ready() to compare with committed
-	prevCommitted uint64
 }
 
 // newLog returns log using the given storage. It recovers the log
