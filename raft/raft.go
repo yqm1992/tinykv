@@ -596,8 +596,7 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 			return
 		} else {
 			if logTerm, _ := r.RaftLog.Term(m.Index); logTerm != m.LogTerm {
-				// Drop the entries which Index >= m.Index
-				r.RaftLog.dropEntries(m.Index)
+				// Do not drop entries here, the crash entries will be dropped in stage of appending log
 
 				// Reply reject with the biggest possible match index
 				msg.Index = m.Index - 1
