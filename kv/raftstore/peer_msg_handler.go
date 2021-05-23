@@ -3,6 +3,7 @@ package raftstore
 import (
 	"bytes"
 	"fmt"
+	"github.com/Connor1996/badger"
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
@@ -109,7 +110,7 @@ func (d *peerMsgHandler) rangeValid(key []byte) bool {
 	return true
 }
 
-func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
+func (d *peerMsgHandler) applyEntryOld(entry *eraftpb.Entry, cb *message.Callback){
 	if entry == nil {
 		log.Fatalf("Cannot apply nil entry")
 	}
@@ -275,6 +276,170 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			return
 		}
 	}
+}
+
+// isRangeValid checks if the key is in range of this region
+func (d *peerMsgHandler) isRangeValid(key []byte) bool {
+	if d.Region().GetStartKey() != nil {
+		result := bytes.Compare(key, d.Region().GetStartKey())
+		if result < 0 {
+			return false
+		}
+	}
+	if d.Region().GetEndKey() != nil {
+		result := bytes.Compare(key, d.Region().GetEndKey())
+		if result >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// doneApplyEntry saves data to kvDB and replies to client
+func (d *peerMsgHandler) doneApplyEntry(kvWB *engine_util.WriteBatch, appliedIndex uint64, cb *message.Callback, resp *raft_cmdpb.RaftCmdResponse){
+	if kvWB == nil {
+		log.Fatalf("kvWB can not be nil")
+	}
+	if appliedIndex != d.peerStorage.applyState.AppliedIndex+1 {
+		log.Fatalf("appliedIndex(%v) != last_appliedIndex(%v) + 1", appliedIndex, d.peerStorage.applyState.AppliedIndex)
+	}
+	d.peerStorage.applyState.AppliedIndex = appliedIndex
+	kvWB.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
+	if err := d.peerStorage.Engines.WriteKV(kvWB); err != nil {
+		if cb != nil{
+			cb.Done(ErrResp(err))
+		}
+		log.Fatal(err)
+	}
+	if cb != nil {
+		if resp == nil {
+			log.Fatalf("response can not be nil")
+		}
+		if resp.Header.Error == nil {
+			if len(resp.Responses) == 0 {
+				log.Fatalf("response count can not be 0")
+			}
+		}
+		cb.Done(resp)
+	}
+}
+
+func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
+	if entry == nil {
+		log.Fatalf("Cannot apply a nil entry")
+	}
+	kvWB := new(engine_util.WriteBatch)
+	var resp *raft_cmdpb.RaftCmdResponse = nil
+	if cb != nil {
+		resp = &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
+	}
+	if entry.Data == nil {
+		d.doneApplyEntry(kvWB, entry.Index, cb, resp)
+		return
+	}
+	raftCmdRequest := raft_cmdpb.RaftCmdRequest{}
+	err := raftCmdRequest.Unmarshal(entry.Data)
+	if err != nil {
+		log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
+	}
+	req := raftCmdRequest.Requests[0]
+	switch req.CmdType {
+	case raft_cmdpb.CmdType_Invalid:
+		log.Errorf("here comes a request, type: CmdType_Invalid")
+		if resp == nil {
+			break
+		}
+		err = errors.Errorf("invalid cmd_type: %v", req.CmdType)
+		resp = ErrResp(err)
+	case raft_cmdpb.CmdType_Get:
+		log.Infof("here comes a request, type: CmdType_Get")
+		if resp == nil {
+			break
+		}
+		if req.Get == nil {
+			err = errors.Errorf("request.Get is nil")
+			resp = ErrResp(err)
+			break
+		}
+		get := req.Get
+		if ! d.isRangeValid(get.Key) {
+			err = errors.Errorf("key is out of the range of current region")
+			resp = ErrResp(err)
+			break
+		}
+		val, err2 := engine_util.GetCF(d.peerStorage.Engines.Kv, get.Cf, get.Key)
+		if err2 == badger.ErrKeyNotFound {
+			resp = ErrResp(err2)
+			break
+		} else if err2 != nil{
+			log.Fatal(err2)
+		} else {
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Get, Get: &raft_cmdpb.GetResponse{Value: val}})
+		}
+	case raft_cmdpb.CmdType_Put:
+		log.Infof("here comes a request, type: CmdType_Put")
+		put := req.Put
+		if put == nil {
+			if resp != nil{
+				err = errors.Errorf("request.Put is nil")
+				resp = ErrResp(err)
+			}
+			break
+		}
+		if ! d.isRangeValid(put.Key) {
+			if resp != nil {
+				err = errors.Errorf("key is out of the range of current region")
+				resp = ErrResp(err)
+			}
+			break
+		}
+		kvWB.SetCF(put.Cf, put.Key, put.Value)
+		if resp != nil {
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Put, Put: &raft_cmdpb.PutResponse{}})
+		}
+	case raft_cmdpb.CmdType_Delete:
+		log.Infof("here comes a request, type: CmdType_Delete")
+		del := req.Delete
+		if del == nil {
+			if resp != nil {
+				err = errors.Errorf("request.Delete is nil")
+				resp = ErrResp(err)
+			}
+			break
+		}
+		if ! d.isRangeValid(del.Key) {
+			if resp != nil {
+				err = errors.Errorf("key is out of the range of current region")
+				resp = ErrResp(err)
+			}
+			break
+		}
+		kvWB.DeleteCF(del.Cf, del.Key)
+		if resp != nil {
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Delete, Delete: &raft_cmdpb.DeleteResponse{}})
+		}
+	case raft_cmdpb.CmdType_Snap:
+		log.Infof("here comes a request, type: CmdType_Snap")
+		if req.Snap == nil {
+			if resp != nil{
+				err = errors.Errorf("request.Snap is nil")
+				resp = ErrResp(err)
+			}
+			break
+		}
+		if resp != nil {
+			cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Snap, Snap: &raft_cmdpb.SnapResponse{Region: d.Region()}})
+		}
+	default:
+		log.Errorf("here comes a request with unknown cmd_type: %v", req.CmdType)
+		if resp == nil {
+			break
+		}
+		err = errors.Errorf("invalid cmd_type: %v", req.CmdType)
+		resp = ErrResp(err)
+	}
+	d.doneApplyEntry(kvWB, entry.Index, cb, resp)
 }
 
 func (d *peerMsgHandler) HandleRaftReady() {
