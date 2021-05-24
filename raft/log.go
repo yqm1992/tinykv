@@ -147,19 +147,16 @@ func (l *RaftLog) LastIndex() uint64 {
 
 // Term return the term of the entry in the given index
 func (l *RaftLog) Term(i uint64) (uint64, error) {
-	if i == 0 {
-		return 0, nil
+	if lastIndex := l.LastIndex(); i < l.truncatedIndex || i > lastIndex {
+		return 0, fmt.Errorf("the given index = %d exceeds the valid range [%d, %d]", i, l.truncatedIndex, lastIndex)
 	}
-
-	if len(l.entries) == 0 {
-		return 0, fmt.Errorf("the log is empty")
+	if i == l.truncatedIndex {
+		return l.truncatedTerm, nil
 	}
-
-	if lastIndex := l.LastIndex(); i < l.entries[0].Index || i > lastIndex {
-		return 0, fmt.Errorf("the given index = %d exceeds the valid range [%d, %d]", i, l.entries[0].Index, lastIndex)
+	offset, err := l.Offset(i)
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	offset :=  i - l.entries[0].Index
 	return l.entries[offset].Term, nil
 }
 
