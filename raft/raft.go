@@ -176,13 +176,29 @@ func newRaft(c *Config) *Raft {
 		log.Error(err2)
 		return nil
 	}
-	if c.Applied > hardState.Commit {
-		log.Fatalf("applied = %v > committed = %v", c.Applied, hardState.Commit)
-	}
+
 	r.RaftLog.applied = c.Applied
 	r.RaftLog.committed = hardState.Commit
 	r.Term = hardState.Term
 	r.Vote = hardState.Vote
+
+	// check if the index order is satisfied: truncatedIndex <= appliedIndex <= committedIndex <= stabledIndex <= lastIndex
+	if r.RaftLog.truncatedIndex > r.RaftLog.applied {
+		log.Errorf("truncatedIndex(%v) > appliedIndex(%v)", r.RaftLog.truncatedIndex, r.RaftLog.applied)
+		return nil
+	}
+	if  r.RaftLog.applied > r.RaftLog.committed{
+		log.Errorf("appliedIndex(%v) > committedIndex(%v)", r.RaftLog.applied, r.RaftLog.committed)
+		return nil
+	}
+	if r.RaftLog.committed > r.RaftLog.stabled {
+		log.Errorf("committedIndex(%v) > stabledIndex(%v)", r.RaftLog.committed, r.RaftLog.stabled)
+		return nil
+	}
+	if r.RaftLog.stabled > r.RaftLog.LastIndex() {
+		log.Errorf("stabledIndex(%v) > lastIndex(%v)", r.RaftLog.stabled, r.RaftLog.LastIndex())
+		return nil
+	}
 
 	r.Prs = make(map[uint64]*Progress)
 	for _, peer_id := range c.peers{
