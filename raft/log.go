@@ -61,12 +61,18 @@ type RaftLog struct {
 func newLog(storage Storage) *RaftLog {
 	// Your Code Here (2A).
 	firstIndex, err1 := storage.FirstIndex()
+	if err1 != nil {
+		log.Error(err1)
+		return nil
+	}
 	lastIndex, err2 := storage.LastIndex()
-	if (err1 != nil || err2 != nil) {
+	if err2 != nil {
+		log.Error(err2)
 		return nil
 	}
 	entries, err3 := storage.Entries(firstIndex, lastIndex+1)
 	if err3 != nil {
+		log.Error(err3)
 		return nil
 	}
 
