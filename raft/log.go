@@ -107,16 +107,15 @@ func (l *RaftLog) maybeCompact() {
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
-	if l.stabled == 0 {
+	if l.stabled == l.truncatedIndex {
 		return l.entries
 	}
 
-	if lastIndex := l.LastIndex(); l.stabled < lastIndex {
-		stabledOffset := l.stabled - l.entries[0].Index
-		return l.entries[stabledOffset+1:]
+	stabledOffset, err := l.Offset(l.stabled)
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	return []pb.Entry{}
+	return l.entries[stabledOffset+1:]
 }
 
 // nextEnts returns all the committed but not applied entries
