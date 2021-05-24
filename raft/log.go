@@ -166,6 +166,14 @@ func (l *RaftLog) Term(i uint64) (uint64, error) {
 	return l.entries[offset].Term, nil
 }
 
+func (l *RaftLog) MustGetTerm(i uint64) uint64 {
+	logTerm, err := l.Term(i)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return logTerm
+}
+
 // Offset return the offset of the given index
 func (l *RaftLog) Offset(i uint64) (uint64, error) {
 	if len(l.entries) == 0 {
