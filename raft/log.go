@@ -54,6 +54,11 @@ type RaftLog struct {
 	pendingSnapshot *pb.Snapshot
 
 	// Your Data Here (2A).
+	// log entries with index <= truncatedIndex are truncated
+	truncatedIndex uint64
+
+	// term of the last truncated entry(entry.Index = truncatedIndex)
+	truncatedTerm uint64
 }
 
 // newLog returns log using the given storage. It recovers the log
@@ -75,11 +80,19 @@ func newLog(storage Storage) *RaftLog {
 		log.Error(err3)
 		return nil
 	}
+	truncatedIndex := firstIndex - 1
+	truncatedTerm, err4 := storage.Term(truncatedIndex)
+	if err4 != nil {
+		log.Error(err4)
+		return nil
+	}
 
 	raftLog := RaftLog{
 		storage: storage,
 		entries: entries,
 		stabled: lastIndex,
+		truncatedIndex: truncatedIndex,
+		truncatedTerm: truncatedTerm,
 	}
 	return &raftLog
 }
