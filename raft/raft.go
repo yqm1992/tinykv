@@ -202,7 +202,7 @@ func newRaft(c *Config) *Raft {
 
 	r.Prs = make(map[uint64]*Progress)
 	for _, peer_id := range c.peers{
-		r.Prs[peer_id] = &Progress{0, max(1, r.RaftLog.LastIndex())}
+		r.Prs[peer_id] = &Progress{}
 	}
 	return &r
 }
