@@ -171,7 +171,11 @@ func newRaft(c *Config) *Raft {
 		return nil
 	}
 	// InitialState() couldn't be called in newLog(), which could cause nil pointer dereference
-	hardState, _, _ := c.Storage.InitialState()
+	hardState, _, err2 := c.Storage.InitialState()
+	if err2 != nil {
+		log.Error(err2)
+		return nil
+	}
 	if c.Applied > hardState.Commit {
 		log.Fatalf("applied = %v > committed = %v", c.Applied, hardState.Commit)
 	}
