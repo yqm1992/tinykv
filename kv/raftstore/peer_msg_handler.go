@@ -104,22 +104,10 @@ func (d *peerMsgHandler) doneApplyEntry(kvWB *engine_util.WriteBatch, appliedInd
 	d.peerStorage.applyState.AppliedIndex = appliedIndex
 	kvWB.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
 	if err := d.peerStorage.Engines.WriteKV(kvWB); err != nil {
-		if cb != nil{
-			cb.Done(ErrResp(err))
-		}
+		cb.Done(ErrResp(err))
 		log.Fatal(err)
 	}
-	if cb != nil {
-		if resp == nil {
-			log.Fatalf("response can not be nil")
-		}
-		if resp.Header.Error == nil {
-			if len(resp.Responses) == 0 {
-				log.Fatalf("response count can not be 0")
-			}
-		}
-		cb.Done(resp)
-	}
+	cb.Done(resp)
 }
 
 func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
