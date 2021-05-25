@@ -138,7 +138,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 		err = errors.Errorf("invalid cmd_type: %v", req.CmdType)
 		resp = ErrResp(err)
 	case raft_cmdpb.CmdType_Get:
-		log.Infof("here comes a request, type: CmdType_Get")
 		if resp == nil {
 			break
 		}
@@ -163,7 +162,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Get, Get: &raft_cmdpb.GetResponse{Value: val}})
 		}
 	case raft_cmdpb.CmdType_Put:
-		log.Infof("here comes a request, type: CmdType_Put")
 		put := req.Put
 		if put == nil {
 			if resp != nil{
@@ -184,7 +182,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Put, Put: &raft_cmdpb.PutResponse{}})
 		}
 	case raft_cmdpb.CmdType_Delete:
-		log.Infof("here comes a request, type: CmdType_Delete")
 		del := req.Delete
 		if del == nil {
 			if resp != nil {
@@ -205,7 +202,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Delete, Delete: &raft_cmdpb.DeleteResponse{}})
 		}
 	case raft_cmdpb.CmdType_Snap:
-		log.Infof("here comes a request, type: CmdType_Snap")
 		if req.Snap == nil {
 			if resp != nil{
 				err = errors.Errorf("request.Snap is nil")
