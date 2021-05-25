@@ -324,8 +324,18 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		return
 	}
 	// Your Code Here (2B).
+	if msg.AdminRequest == nil && len(msg.Requests) == 0 {
+		err = errors.Errorf("the RaftCmd has no request")
+		cb.Done(ErrResp(err))
+		return
+	}
+	if msg.AdminRequest != nil && len(msg.Requests) > 0 {
+		err = errors.Errorf("the RaftCmd can't enclose normal requests and administrator request at same time")
+		cb.Done(ErrResp(err))
+		return
+	}
 	// Currently, leader handles only one request in a message
-	if len(msg.Requests) != 1 {
+	if len(msg.Requests) > 1 {
 		err = errors.Errorf("a RaftCmd can include only one request, now the number of requests is %v", len(msg.Requests))
 		cb.Done(ErrResp(err))
 		return
