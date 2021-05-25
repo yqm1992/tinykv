@@ -595,8 +595,8 @@ func (r *Raft)handleVoteRequest(m pb.Message){
 	r.msgs = append(r.msgs, msg)
 }
 
-// handleAppendEntries handle AppendEntries RPC request
-func (r *Raft) handleAppendEntries(m pb.Message) {
+// handleAppendEntriesOld handle AppendEntries RPC request
+func (r *Raft) handleAppendEntriesOld(m pb.Message) {
 	// Your Code Here (2A).
 	if r.State != StateFollower || r.Term != m.Term || m.MsgType != pb.MessageType_MsgAppend {
 		return
@@ -668,6 +668,86 @@ func (r *Raft) handleAppendEntries(m pb.Message) {
 
 	//// Apply Entries
 	//r.RaftLog.applied = r.RaftLog.committed
+}
+
+// handleAppendEntries handle AppendEntries RPC request
+func (r *Raft) handleAppendEntries(m pb.Message) {
+	// Your Code Here (2A).
+	if r.State != StateFollower || r.Term != m.Term || m.MsgType != pb.MessageType_MsgAppend {
+		return
+	}
+	if len(m.Entries) > 0 && m.Index+uint64(len(m.Entries)) != m.Entries[len(m.Entries)-1].Index {
+		log.Errorf("the index order of m.entries is not correct")
+		return
+	}
+	msg := pb.Message{From: r.id, To: m.From, Term: r.Term, MsgType: pb.MessageType_MsgAppendResponse, Reject: true}
+	lastIndex := r.RaftLog.LastIndex()
+
+	// Check if entry (m.Index, m.Term) exists in local log
+	if m.Index > lastIndex {
+		msg.Index = lastIndex
+		msg.LogTerm = r.RaftLog.MustGetTerm(msg.Index)
+		r.msgs = append(r.msgs, msg)
+		return
+	}
+	if m.Index >= r.RaftLog.truncatedIndex {
+		logTerm := r.RaftLog.MustGetTerm(m.Index)
+		if logTerm != m.LogTerm {
+			if m.Index <= r.RaftLog.committed {
+				log.Errorf("crash index should bigger than committed index, now crash index = %v, committed index = %v", m.Index, r.RaftLog.committed)
+				return
+			}
+			// Do not drop entries here, the crash entries will be dropped in stage of appending log
+			// Reply reject with the biggest possible match index
+			msg.Index = m.Index - 1
+			msg.LogTerm = r.RaftLog.MustGetTerm(msg.Index)
+			r.msgs = append(r.msgs, msg)
+			return
+		}
+	}
+	i := 0
+	// Check if there is conflict in appending operation
+	for ; i < len(m.Entries); i++ {
+		curIndex := m.Entries[i].Index
+		if curIndex < r.RaftLog.truncatedIndex {
+			continue
+		}
+		if curIndex > lastIndex {
+			break
+		}
+		// truncatedIndex <= curIndex <= lastIndex
+		logTerm := r.RaftLog.MustGetTerm(curIndex)
+		// conflict position
+		if m.Entries[i].Term != logTerm {
+			if curIndex <= r.RaftLog.committed {
+				log.Errorf("crash index should bigger than committed index, now crash index = %v, committed index = %v", curIndex, r.RaftLog.committed)
+				return
+			}
+			// Drop the entries after conflict position (include curIndex)
+			r.RaftLog.dropEntries(curIndex)
+			break
+		}
+	}
+	// Append entries
+	for ; i < len(m.Entries); i++ {
+		r.RaftLog.entries = append(r.RaftLog.entries, *m.Entries[i])
+	}
+	// Compute current max match index
+	maxMatchIndex := max(m.Index, r.RaftLog.committed)
+	if len(m.Entries) > 0 {
+		maxMatchIndex = max(m.Entries[len(m.Entries)-1].Index, r.RaftLog.committed)
+	}
+	maxMatchLogTerm := r.RaftLog.MustGetTerm(maxMatchIndex)
+	// Reply a accept message
+	msg.Index = maxMatchIndex
+	msg.LogTerm = maxMatchLogTerm
+	msg.Reject = false
+	r.msgs = append(r.msgs, msg)
+	// Update committed
+	if m.Commit > r.RaftLog.committed {
+		r.RaftLog.committed = min(maxMatchIndex, m.Commit)
+		log.Infof("id = %v, term = %v, committed  = %v", r.id, r.Term, r.RaftLog.committed)
+	}
 }
 
 // handleHeartbeat handle Heartbeat RPC request
