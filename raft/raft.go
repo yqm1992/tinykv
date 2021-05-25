@@ -811,6 +811,27 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 // handleSnapshot handle Snapshot RPC request
 func (r *Raft) handleSnapshot(m pb.Message) {
 	// Your Code Here (2C).
+	// TODO: need to check m.Term and m.MsgType ?
+	if r.State != StateFollower {
+		return
+	}
+	if m.Snapshot == nil {
+		log.Errorf("snapshot is nil")
+		return
+	}
+	if r.RaftLog.LastIndex() > m.Snapshot.Metadata.Index {
+		return
+	}
+	r.RaftLog.entries = []pb.Entry{}
+	r.RaftLog.truncatedIndex = m.Snapshot.Metadata.Index
+	r.RaftLog.truncatedTerm = m.Snapshot.Metadata.Term
+	r.RaftLog.applied = m.Snapshot.Metadata.Index
+	r.RaftLog.committed = m.Snapshot.Metadata.Index
+	r.RaftLog.stabled = m.Snapshot.Metadata.Index
+	r.Prs = make(map[uint64]*Progress)
+	for _, peer_id := range m.Snapshot.Metadata.ConfState.Nodes {
+		r.Prs[peer_id] = &Progress{}
+	}
 }
 
 // addNode add a new node to raft group
