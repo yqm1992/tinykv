@@ -217,6 +217,25 @@ func (r *Raft) sendAppend(to uint64) bool {
 	lastIndex := r.RaftLog.LastIndex()
 	peer := r.Prs[to]
 
+	if peer.Next <= r.RaftLog.truncatedIndex {
+		snapShot, err := r.RaftLog.storage.Snapshot()
+		if err == ErrSnapshotTemporarilyUnavailable {
+			return false
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		msg := pb.Message{
+			From: r.id,
+			To: to,
+			Term: r.Term,
+			MsgType: pb.MessageType_MsgSnapshot,
+			Snapshot: &snapShot,
+		}
+		r.msgs = append(r.msgs, msg)
+		return true
+	}
+
 	// Send Append with no entry to peer
 	if peer.Next > lastIndex {
 		//return false
@@ -467,6 +486,11 @@ func (r *Raft) StepFollower(m pb.Message){
 			r.becomeFollower(m.Term, m.From)
 		}
 		r.handleAppendEntries(m)
+	case pb.MessageType_MsgSnapshot:
+		if r.Lead != m.From {
+			r.becomeFollower(m.Term, m.From)
+		}
+		r.handleSnapshot(m)
 	}
 }
 
@@ -503,6 +527,9 @@ func (r *Raft) StepCandidate(m pb.Message){
 			r.becomeFollower(m.Term, None)
 		}
 	case pb.MessageType_MsgAppend:
+		r.becomeFollower(m.Term, m.From)
+		r.Step(m)
+	case pb.MessageType_MsgSnapshot:
 		r.becomeFollower(m.Term, m.From)
 		r.Step(m)
 	}
