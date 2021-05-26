@@ -177,7 +177,7 @@ func newRaft(c *Config) *Raft {
 		return nil
 	}
 
-	r.RaftLog.applied = c.Applied
+	r.RaftLog.applied = max(c.Applied, r.RaftLog.truncatedIndex)
 	r.RaftLog.committed = hardState.Commit
 	r.Term = hardState.Term
 	r.Vote = hardState.Vote
