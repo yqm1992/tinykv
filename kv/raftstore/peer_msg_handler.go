@@ -128,6 +128,35 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	if err != nil {
 		log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
 	}
+	if raftCmdRequest.AdminRequest != nil {
+		adminReq := raftCmdRequest.AdminRequest
+		switch adminReq.CmdType {
+		case raft_cmdpb.AdminCmdType_InvalidAdmin:
+			log.Errorf("here comes a %v request", adminReq.CmdType)
+		case raft_cmdpb.AdminCmdType_CompactLog:
+			compactLog := raftCmdRequest.AdminRequest.CompactLog
+			if compactLog == nil {
+				log.Errorf("the CompactLog request is nil")
+				break
+			}
+			if compactLog.CompactIndex > d.peerStorage.AppliedIndex() {
+				log.Errorf("compactIndex(%v) > appliedIndex(%v)", compactLog.CompactIndex, d.peerStorage.AppliedIndex())
+				break
+			}
+			if compactLog.CompactIndex <= d.peerStorage.truncatedIndex() {
+				log.Warnf("compactIndex(%v) <= truncatedIndex(%v)", compactLog.CompactIndex, d.peerStorage.truncatedIndex())
+				break
+			}
+			d.RaftGroup.Raft.RaftLog.Compact(compactLog.CompactIndex, compactLog.CompactTerm)
+			d.RaftGroup.Raft.RaftLog.PrintLogLen()
+			d.peerStorage.applyState.TruncatedState.Index = compactLog.CompactIndex
+			d.peerStorage.applyState.TruncatedState.Term = compactLog.CompactTerm
+		default:
+			log.Errorf("unknown admin request, type = %v", adminReq.CmdType)
+		}
+		d.doneApplyEntry(kvWB, entry.Index, nil, nil)
+		return
+	}
 	req := raftCmdRequest.Requests[0]
 	switch req.CmdType {
 	case raft_cmdpb.CmdType_Invalid:

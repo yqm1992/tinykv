@@ -104,6 +104,32 @@ func (l *RaftLog) maybeCompact() {
 	// Your Code Here (2C).
 }
 
+// Compact compacts the log in memory
+func (l *RaftLog) Compact(compactIndex, compactTerm uint64) {
+	if compactTerm != l.MustGetTerm(compactIndex) {
+		log.Fatalf("the entry [idx=%v, term=%v] does not exist", compactIndex, compactTerm)
+	}
+	l.truncatedIndex = compactIndex
+	l.truncatedTerm = compactTerm
+	offset, err := l.Offset(compactIndex)
+	if err != nil {
+		log.Fatal(err)
+	}
+	l.entries = l.entries[offset+1:]
+}
+
+// PrintLogLen is used for test
+func (l *RaftLog) PrintLogLen() {
+	if len(l.entries) == 0 {
+		log.Infof("truncIndex = %v, len = %v", l.truncatedIndex, len(l.entries))
+	} else {
+		if l.entries[0].Index != l.truncatedIndex + 1 {
+			log.Fatalf("fisrtIndex(%v) != truncatedIndex(%v) + 1", l.entries[0].Index, l.truncatedIndex)
+		}
+		log.Infof("truncIndex = %v, firstIndex = %v, lastIndex = %v, len = %v", l.truncatedIndex, l.entries[0].Index, l.LastIndex(), len(l.entries))
+	}
+}
+
 // unstableEntries return all the unstable entries
 func (l *RaftLog) unstableEntries() []pb.Entry {
 	// Your Code Here (2A).
