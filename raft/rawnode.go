@@ -155,13 +155,16 @@ func (rn *RawNode) Ready() Ready {
 	raftLog := rn.Raft.RaftLog
 	unstableEntries := raftLog.unstableEntries()
 	committedEntries := raftLog.nextEnts()
-
-	return Ready{
+	ready := Ready{
 		HardState: hardState,
 		Entries: unstableEntries,
 		CommittedEntries: committedEntries,
 		Messages: rn.Raft.msgs,
 	}
+	if raftLog.pendingSnapshot != nil {
+		ready.Snapshot = *raftLog.pendingSnapshot
+	}
+	return ready
 }
 
 // HasReady called when RawNode user need to check if any Ready pending.
@@ -172,6 +175,9 @@ func (rn *RawNode) HasReady() bool {
 		return true
 	}
 	raftLog := rn.Raft.RaftLog
+	if raftLog.pendingSnapshot != nil {
+		return true
+	}
 	if raftLog.stabled < raftLog.LastIndex(){
 		return true
 	}
@@ -188,6 +194,7 @@ func (rn *RawNode) HasReady() bool {
 // last Ready results.
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
+	rn.Raft.RaftLog.pendingSnapshot = nil
 	rn.hardState = pb.HardState{Term: rn.Raft.Term, Vote: rn.Raft.Vote, Commit: rn.Raft.RaftLog.committed}
 	rn.Raft.RaftLog.applied = rn.Raft.RaftLog.committed
 	rn.Raft.RaftLog.stabled = rn.Raft.RaftLog.LastIndex()
