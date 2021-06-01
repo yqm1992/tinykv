@@ -853,19 +853,28 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 		log.Errorf("snapshot is nil")
 		return
 	}
-	if r.RaftLog.LastIndex() > m.Snapshot.Metadata.Index {
+	log.Warnf("id= %v, rcv snapshot(index=%v), trunc=%v, applied=%v, commit=%v, last=%v", r.id, m.Snapshot.Metadata.Index, r.RaftLog.truncatedIndex, r.RaftLog.applied, r.RaftLog.committed, r.RaftLog.LastIndex())
+	if m.Snapshot.Metadata.Index <= r.RaftLog.committed {
 		return
 	}
-	r.RaftLog.entries = []pb.Entry{}
+	if m.Snapshot.Metadata.Index <= r.RaftLog.LastIndex(){
+		snapOffset, _ := r.RaftLog.Offset(m.Snapshot.Metadata.Index)
+		r.RaftLog.entries = r.RaftLog.entries[snapOffset+1:]
+	} else {
+		r.RaftLog.entries = []pb.Entry{}
+	}
+	r.RaftLog.pendingSnapshot = m.Snapshot
 	r.RaftLog.truncatedIndex = m.Snapshot.Metadata.Index
 	r.RaftLog.truncatedTerm = m.Snapshot.Metadata.Term
 	r.RaftLog.applied = m.Snapshot.Metadata.Index
 	r.RaftLog.committed = m.Snapshot.Metadata.Index
-	r.RaftLog.stabled = m.Snapshot.Metadata.Index
+	r.RaftLog.stabled = max(r.RaftLog.stabled, m.Snapshot.Metadata.Index)
 	r.Prs = make(map[uint64]*Progress)
 	for _, peer_id := range m.Snapshot.Metadata.ConfState.Nodes {
 		r.Prs[peer_id] = &Progress{}
 	}
+	msg := pb.Message{From: r.id, To: m.From, Term: r.Term, MsgType: pb.MessageType_MsgAppendResponse, Reject: false, Index: m.Snapshot.Metadata.Index, LogTerm: m.Snapshot.Metadata.Term}
+	r.msgs = append(r.msgs, msg)
 }
 
 // addNode add a new node to raft group
