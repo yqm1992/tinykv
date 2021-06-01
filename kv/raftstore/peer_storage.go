@@ -326,12 +326,49 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	if err := snapData.Unmarshal(snapshot.Data); err != nil {
 		return nil, err
 	}
-
 	// Hint: things need to do here including: update peer storage state like raftState and applyState, etc,
 	// and send RegionTaskApply task to region worker through ps.regionSched, also remember call ps.clearMeta
 	// and ps.clearExtraData to delete stale data
 	// Your Code Here (2C).
-	return nil, nil
+	snapshotIndex := snapshot.Metadata.Index
+	snapshotTerm := snapshot.Metadata.Term
+	notifier := make(chan bool, 1)
+	applyTask := runner.RegionTaskApply{
+		RegionId: ps.Region().GetId(),
+		Notifier: notifier,
+		SnapMeta: &eraftpb.SnapshotMetadata{ConfState: snapshot.Metadata.ConfState, Index: snapshotIndex, Term: snapshotTerm},
+		StartKey: ps.region.GetStartKey(),
+		EndKey: ps.region.GetEndKey(),
+	}
+	// send task to regionWorker which really does applySnapshot
+	ps.regionSched <- &applyTask
+	if ok :=  <-notifier; ok != true {
+		log.Fatalf("failed to apply snapshot")
+	}
+	ps.clearMeta(kvWB, raftWB)
+	ps.clearExtraData(ps.Region())
+	// TODO how to ensure modifying of kvDB and raftDB is atomic
+	// set applyState
+	ps.applyState.AppliedIndex = snapshotIndex
+	ps.applyState.TruncatedState.Index = snapshotIndex
+	ps.applyState.TruncatedState.Term = snapshotTerm
+	kvWB.SetMeta(meta.ApplyStateKey(ps.region.GetId()), ps.applyState)
+	// set regionState
+	newRegionState := rspb.RegionLocalState{Region: ps.region}
+	kvWB.SetMeta(meta.RegionStateKey(ps.region.GetId()), &newRegionState)
+	// set raftState
+	ps.raftState.LastIndex = snapshotIndex
+	ps.raftState.LastTerm = snapshotTerm
+	ps.raftState.HardState.Commit =  snapshotIndex
+	raftWB.SetMeta(meta.RaftStateKey(ps.region.GetId()), ps.raftState)
+	// write applyState, regionState to kvDB, raftState to raftDB
+	if err := ps.Engines.WriteKV(kvWB); err != nil {
+		return nil, err
+	}
+	if err := ps.Engines.WriteRaft(raftWB); err != nil {
+		return nil, err
+	}
+	return &ApplySnapResult{ps.Region(), ps.Region()}, nil
 }
 
 // Save memory states to disk.
