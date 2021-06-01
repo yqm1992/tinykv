@@ -218,20 +218,27 @@ func (r *Raft) sendAppend(to uint64) bool {
 	peer := r.Prs[to]
 
 	if peer.Next <= r.RaftLog.truncatedIndex {
-		snapShot, err := r.RaftLog.storage.Snapshot()
-		if err == ErrSnapshotTemporarilyUnavailable {
-			return false
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
 		msg := pb.Message{
 			From: r.id,
 			To: to,
 			Term: r.Term,
 			MsgType: pb.MessageType_MsgSnapshot,
-			Snapshot: &snapShot,
 		}
+		if r.RaftLog.localSnapshot != nil && r.RaftLog.localSnapshot.Metadata.Index >= peer.Next {
+			msg.Snapshot = r.RaftLog.localSnapshot
+			r.msgs = append(r.msgs, msg)
+			return true
+		}
+		snapShot, err := r.RaftLog.storage.Snapshot()
+		if err == ErrSnapshotTemporarilyUnavailable {
+			return false
+		}
+		if err != nil {
+			log.Error(err)
+			return false
+		}
+		r.RaftLog.localSnapshot = &snapShot
+		msg.Snapshot = r.RaftLog.localSnapshot
 		r.msgs = append(r.msgs, msg)
 		return true
 	}
