@@ -148,7 +148,7 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 				break
 			}
 			d.RaftGroup.Raft.RaftLog.Compact(compactLog.CompactIndex, compactLog.CompactTerm)
-			d.RaftGroup.Raft.RaftLog.PrintLogLen()
+			d.ScheduleCompactLog(compactLog.CompactIndex)
 			d.peerStorage.applyState.TruncatedState.Index = compactLog.CompactIndex
 			d.peerStorage.applyState.TruncatedState.Term = compactLog.CompactTerm
 		default:
