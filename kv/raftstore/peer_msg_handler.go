@@ -99,7 +99,7 @@ func (d *peerMsgHandler) doneApplyEntry(kvWB *engine_util.WriteBatch, appliedInd
 		log.Fatalf("kvWB can not be nil")
 	}
 	if appliedIndex != d.peerStorage.applyState.AppliedIndex+1 {
-		log.Fatalf("appliedIndex(%v) != last_appliedIndex(%v) + 1", appliedIndex, d.peerStorage.applyState.AppliedIndex)
+		log.Fatalf("id = %v, appliedIndex(%v) != last_appliedIndex(%v) + 1", d.PeerId(), appliedIndex, d.peerStorage.applyState.AppliedIndex)
 	}
 	d.peerStorage.applyState.AppliedIndex = appliedIndex
 	kvWB.SetMeta(meta.ApplyStateKey(d.regionId), d.peerStorage.applyState)
@@ -144,7 +144,7 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 				break
 			}
 			if compactLog.CompactIndex <= d.peerStorage.truncatedIndex() {
-				log.Warnf("compactIndex(%v) <= truncatedIndex(%v)", compactLog.CompactIndex, d.peerStorage.truncatedIndex())
+				log.Warnf("id = %v, compactIndex(%v) <= truncatedIndex(%v)", d.regionId, compactLog.CompactIndex, d.peerStorage.truncatedIndex())
 				break
 			}
 			d.RaftGroup.Raft.RaftLog.Compact(compactLog.CompactIndex, compactLog.CompactTerm)
