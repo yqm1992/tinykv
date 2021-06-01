@@ -853,7 +853,7 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 		log.Errorf("snapshot is nil")
 		return
 	}
-	log.Warnf("id= %v, rcv snapshot(index=%v), trunc=%v, applied=%v, commit=%v, last=%v", r.id, m.Snapshot.Metadata.Index, r.RaftLog.truncatedIndex, r.RaftLog.applied, r.RaftLog.committed, r.RaftLog.LastIndex())
+	log.Infof("id= %v, rcv snapshot(index=%v), trunc=%v, applied=%v, commit=%v, last=%v", r.id, m.Snapshot.Metadata.Index, r.RaftLog.truncatedIndex, r.RaftLog.applied, r.RaftLog.committed, r.RaftLog.LastIndex())
 	if m.Snapshot.Metadata.Index <= r.RaftLog.committed {
 		return
 	}
