@@ -590,6 +590,7 @@ func (r *Raft) StepLeader(m pb.Message){
 		r.handleHeartbeatResponse(m)
 	case pb.MessageType_MsgPropose:
 		if r.leadTransferee != None {
+			log.Warnf("id = %v is in progress of transferring leader to %v, can not handle propose message", r.id, r.leadTransferee)
 			return
 		}
 		r.handleAppendPropose(m)
