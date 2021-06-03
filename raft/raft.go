@@ -566,8 +566,8 @@ func (r *Raft) StepCandidate(m pb.Message){
 				acceptCount++
 			}
 		}
-		quorum := len(r.Prs)/2 + 1
-		if (acceptCount >= quorum){
+		quorum := r.Quorum()
+		if acceptCount >= quorum {
 			r.becomeLeader()
 		} else if len(r.votes) - acceptCount >= quorum {
 			r.becomeFollower(m.Term, None)
