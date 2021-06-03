@@ -929,4 +929,8 @@ func (r *Raft) removeNode(id uint64) {
 	}
 	delete(r.Prs, id)
 	log.Infof("success to remove id = %v from raft group", id)
+	// the quorum may decrease, so we should check if the committed needs to be updated
+	if r.State == StateLeader {
+		r.UpdateCommitted()
+	}
 }
