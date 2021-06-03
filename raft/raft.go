@@ -754,6 +754,7 @@ func (r *Raft) handleAppendPropose(m pb.Message){
 	// append data to the local log
 	for _, entry := range m.Entries{
 		tempEntry := pb.Entry{
+			EntryType: entry.EntryType,
 			Term: r.Term,
 			Index: curIndex,
 			Data: entry.Data,
