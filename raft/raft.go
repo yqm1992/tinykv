@@ -472,16 +472,6 @@ func (r *Raft) StepFollower(m pb.Message){
 		r.becomeCandidate()
 		r.raiseVote()
 		return
-		//r.State = StateCandidate
-		//if r.Vote == None {
-		//	r.Term++
-		//}
-		//r.electionTimeout = rand.Int()%10 + 10
-		//r.electionElapsed = 0
-		//r.votes = make(map[uint64]bool)
-		//r.msgs = make([]pb.Message, 0)
-		//
-		//r.raiseVote()
 	case pb.MessageType_MsgHeartbeat:
 		if r.Lead != m.From {
 			r.becomeFollower(m.Term, m.From)
