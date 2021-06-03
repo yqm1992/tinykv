@@ -614,7 +614,7 @@ func (r *Raft) StepLeader(m pb.Message){
 			return
 		}
 		if m.From == r.id {
-			log.Warnf("id = %v is already a leader, can not transfer leader to itself", r.id)
+			log.Warnf("id = %v is already a leader, just set leadTransferee to None", r.id)
 			r.leadTransferee = None
 			return
 		}
