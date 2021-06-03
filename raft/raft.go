@@ -491,6 +491,15 @@ func (r *Raft) StepFollower(m pb.Message){
 		r.handleSnapshot(m)
 	case pb.MessageType_MsgTimeoutNow:
 		r.Step(pb.Message{From: r.id, To: r.id, MsgType: pb.MessageType_MsgHup})
+	case pb.MessageType_MsgTransferLeader:
+		if m.From != r.id {
+			log.Warnf("id = %v is not leader, can not handle the TransferLeader message from %v", r.id, m.From)
+			return
+		}
+		if r.Lead != None {
+			msg := pb.Message{To: r.Lead, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgTransferLeader}
+			r.msgs = append(r.msgs, msg)
+		}
 	}
 }
 
