@@ -606,7 +606,7 @@ func (r *Raft) StepLeader(m pb.Message){
 }
 
 func isLocalMessage(m pb.Message) bool {
-	if m.MsgType == pb.MessageType_MsgHup || m.MsgType == pb.MessageType_MsgPropose || m.MsgType == pb.MessageType_MsgBeat {
+	if m.MsgType == pb.MessageType_MsgHup || m.MsgType == pb.MessageType_MsgPropose || m.MsgType == pb.MessageType_MsgBeat || m.MsgType == pb.MessageType_MsgTransferLeader {
 		return true
 	}
 	return false
