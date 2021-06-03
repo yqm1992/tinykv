@@ -622,6 +622,7 @@ func (r *Raft) StepLeader(m pb.Message){
 			r.sendAppend(m.From)
 			// repeat to transfer leader
 			r.msgs = append(r.msgs, m)
+			log.Infof("id = %v(leader) prepares to transfer leader to id = %v", r.id, m.From)
 		}
 	}
 }
