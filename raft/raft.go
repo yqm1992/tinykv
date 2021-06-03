@@ -429,6 +429,7 @@ func (r *Raft) becomeLeader() {
 
 	r.State = StateLeader
 	r.Lead = r.id
+	r.leadTransferee = None
 	r.heartbeatElapsed = 0
 	lastIndex := r.RaftLog.LastIndex()
 	for peer_id, peer := range r.Prs{
@@ -498,6 +499,8 @@ func (r *Raft) StepFollower(m pb.Message){
 			r.becomeFollower(m.Term, m.From)
 		}
 		r.handleSnapshot(m)
+	case pb.MessageType_MsgTimeoutNow:
+		r.Step(pb.Message{From: r.id, To: r.id, MsgType: pb.MessageType_MsgHup})
 	}
 }
 
@@ -596,12 +599,29 @@ func (r *Raft) StepLeader(m pb.Message){
 	case pb.MessageType_MsgHeartbeatResponse:
 		r.handleHeartbeatResponse(m)
 	case pb.MessageType_MsgPropose:
+		if r.leadTransferee != None {
+			return
+		}
 		r.handleAppendPropose(m)
 	case pb.MessageType_MsgAppendResponse:
 		r.handleAppendResponse(m)
 	case pb.MessageType_MsgRequestVote:
 		msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: true}
 		r.msgs = append(r.msgs, msg)
+	case pb.MessageType_MsgTransferLeader:
+		if m.From == r.id {
+			log.Warnf("id = %v is already a leader, can not transfer leader to itself", r.id)
+			return
+		}
+		r.leadTransferee = m.From
+		if r.Prs[m.From].Match == r.RaftLog.LastIndex() {
+			msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgTimeoutNow}
+			r.msgs = append(r.msgs, msg)
+		} else {
+			r.sendAppend(m.From)
+		}
+		// repeat to transfer leader
+		r.msgs = append(r.msgs, m)
 	}
 }
 
