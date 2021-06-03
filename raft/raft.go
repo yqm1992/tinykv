@@ -900,6 +900,18 @@ func (r *Raft) handleSnapshot(m pb.Message) {
 // addNode add a new node to raft group
 func (r *Raft) addNode(id uint64) {
 	// Your Code Here (3A).
+	// TODO need to check if r is leader ?
+	if id == None {
+		log.Errorf("can not add node(id = %v)", id)
+		return
+	}
+	_, ok := r.Prs[id]
+	if ok == true {
+		log.Warnf("the node(id = %v) is already in raft group", id)
+		return
+	}
+	log.Infof("success to add node(id = %v) to raft group", id)
+	r.Prs[id] = &Progress{Match: 0, Next: r.RaftLog.LastIndex()+1}
 }
 
 // removeNode remove a node from raft group
