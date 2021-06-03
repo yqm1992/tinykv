@@ -917,4 +917,16 @@ func (r *Raft) addNode(id uint64) {
 // removeNode remove a node from raft group
 func (r *Raft) removeNode(id uint64) {
 	// Your Code Here (3A).
+	// TODO need to check if r is leader ?
+	_, ok := r.Prs[id]
+	if ok != true {
+		log.Errorf("failed to remove id = %v, because it's not in the raft group", id)
+		return
+	}
+	if id == r.id && len(r.Prs) > 1 {
+		log.Errorf("failed to remove id = %v, because it is the leader and not the last peer in raft group", id)
+		return
+	}
+	delete(r.Prs, id)
+	log.Infof("success to remove id = %v from raft group", id)
 }
