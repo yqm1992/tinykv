@@ -501,6 +501,45 @@ func (r *Raft) StepFollower(m pb.Message){
 	}
 }
 
+// Quorum returns the quorum of raft group
+func (r *Raft) Quorum() int {
+	return len(r.Prs)/2 + 1
+}
+
+// IsAcceptedByQuorum returns if an entry is accepted by quorum
+func (r *Raft) IsAcceptedByQuorum(index uint64) bool {
+	count := 0
+	for _, peer := range r.Prs{
+		if peer.Match >= index {
+			count++
+		}
+	}
+	if count >= r.Quorum() {
+		return true
+	}
+	return false
+}
+
+// UpdateCommitted updates the committed, returns true if committed is updated
+func (r *Raft) UpdateCommitted() bool {
+	if r.State != StateLeader {
+		log.Errorf("id = %v is not the leader, can't call UpdateCommitted()", r.id)
+		return false
+	}
+	committedChanged := false
+	for idx := r.RaftLog.LastIndex(); idx > r.RaftLog.committed; idx--{
+		// can only commit log entry of current term
+		if logTerm, _ := r.RaftLog.Term(idx); logTerm!= r.Term{
+			break
+		}
+		if r.IsAcceptedByQuorum(idx) {
+			r.RaftLog.committed = idx
+			committedChanged = true
+		}
+	}
+	return committedChanged
+}
+
 // StepCandidate the entrance of handle message for candidate
 // It can only be called by Step()
 func (r *Raft) StepCandidate(m pb.Message){
@@ -804,28 +843,8 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 	r.Prs[m.From].Match = m.Index
 	r.Prs[m.From].Next = m.Index + 1
 
-	// Check for committing
-	commitedChanged := false
-	for idx := r.RaftLog.LastIndex(); idx > r.RaftLog.committed; idx--{
-		// can only commit log entry of current term
-		if logTerm, _ := r.RaftLog.Term(idx); logTerm!= r.Term{
-			break
-		}
-		count := 1
-		for peer_id, peer := range r.Prs{
-			if peer_id == r.id {
-				continue
-			}
-			if peer.Match >= idx{
-				count++
-			}
-		}
-		if count >= len(r.Prs)/2 + 1 {
-			r.RaftLog.committed = idx
-			commitedChanged = true
-			break
-		}
-	}
+	// update committed
+	commitedChanged := r.UpdateCommitted()
 
 	// Continue to send Append if peer's log is different with leader's
 	if commitedChanged == false && r.Prs[m.From].Next <= r.RaftLog.LastIndex() {
