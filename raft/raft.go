@@ -609,6 +609,10 @@ func (r *Raft) StepLeader(m pb.Message){
 		msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: true}
 		r.msgs = append(r.msgs, msg)
 	case pb.MessageType_MsgTransferLeader:
+		if _, ok := r.Prs[m.From]; !ok {
+			log.Warnf("id = %v(leader) drops the TransferLeader message from the peer id = %v which is not in the raft group", r.id, m.From)
+			return
+		}
 		if m.From == r.id {
 			log.Warnf("id = %v is already a leader, can not transfer leader to itself", r.id)
 			return
