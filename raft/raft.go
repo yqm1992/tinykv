@@ -607,11 +607,12 @@ func (r *Raft) StepLeader(m pb.Message){
 		if r.Prs[m.From].Match == r.RaftLog.LastIndex() {
 			msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgTimeoutNow}
 			r.msgs = append(r.msgs, msg)
+			log.Infof("id = %v(leader) transfers leader to id = %v", r.id, m.From)
 		} else {
 			r.sendAppend(m.From)
+			// repeat to transfer leader
+			r.msgs = append(r.msgs, m)
 		}
-		// repeat to transfer leader
-		r.msgs = append(r.msgs, m)
 	}
 }
 
