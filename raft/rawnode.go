@@ -205,7 +205,9 @@ func (rn *RawNode) HasReady() bool {
 func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
 	rn.Raft.RaftLog.pendingSnapshot = nil
-	rn.hardState = pb.HardState{Term: rn.Raft.Term, Vote: rn.Raft.Vote, Commit: rn.Raft.RaftLog.committed}
+	if !IsEmptyHardState(rd.HardState) {
+		rn.hardState = rd.HardState
+	}
 	if rd.SoftState != nil {
 		rn.softState = *rd.SoftState
 	}
