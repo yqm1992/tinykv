@@ -70,6 +70,7 @@ type RawNode struct {
 	Raft *Raft
 	// Your Data Here (2A).
 	hardState pb.HardState
+	softState SoftState
 }
 
 // NewRawNode returns a new RawNode given configuration and a list of raft peers.
@@ -78,7 +79,7 @@ func NewRawNode(config *Config) (*RawNode, error) {
 	if raft := newRaft(config); raft == nil {
 		return nil, nil
 	} else {
-		return &RawNode{Raft:raft, hardState: pb.HardState{Term: raft.Term, Vote: raft.Vote, Commit: raft.RaftLog.committed} }, nil
+		return &RawNode{Raft:raft, hardState: pb.HardState{Term: raft.Term, Vote: raft.Vote, Commit: raft.RaftLog.committed}, softState: SoftState{Lead: raft.Lead, RaftState: raft.State}}, nil
 	}
 }
 
@@ -151,11 +152,16 @@ func (rn *RawNode) Ready() Ready {
 	if isHardStateEqual(hardState, rn.hardState) {
 		hardState = pb.HardState{}
 	}
+	softState := &SoftState{rn.Raft.Lead, rn.Raft.State}
+	if softState.Lead == rn.softState.Lead && softState.RaftState == rn.softState.RaftState {
+		softState = nil
+	}
 
 	raftLog := rn.Raft.RaftLog
 	unstableEntries := raftLog.unstableEntries()
 	committedEntries := raftLog.nextEnts()
 	ready := Ready{
+		SoftState: softState,
 		HardState: hardState,
 		Entries: unstableEntries,
 		CommittedEntries: committedEntries,
@@ -172,6 +178,10 @@ func (rn *RawNode) HasReady() bool {
 	// Your Code Here (2A).
 	hardState := pb.HardState{Term: rn.Raft.Term, Vote: rn.Raft.Vote, Commit: rn.Raft.RaftLog.committed}
 	if !isHardStateEqual(hardState, rn.hardState) {
+		return true
+	}
+	softState := &SoftState{rn.Raft.Lead, rn.Raft.State}
+	if !(softState.Lead == rn.softState.Lead && softState.RaftState == rn.softState.RaftState) {
 		return true
 	}
 	raftLog := rn.Raft.RaftLog
@@ -196,10 +206,12 @@ func (rn *RawNode) Advance(rd Ready) {
 	// Your Code Here (2A).
 	rn.Raft.RaftLog.pendingSnapshot = nil
 	rn.hardState = pb.HardState{Term: rn.Raft.Term, Vote: rn.Raft.Vote, Commit: rn.Raft.RaftLog.committed}
+	if rd.SoftState != nil {
+		rn.softState = *rd.SoftState
+	}
 	rn.Raft.RaftLog.applied = rn.Raft.RaftLog.committed
 	rn.Raft.RaftLog.stabled = rn.Raft.RaftLog.LastIndex()
 	rn.Raft.msgs = make([]pb.Message, 0)
-
 }
 
 // GetProgress return the the Progress of this node and its peers, if this
