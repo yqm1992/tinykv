@@ -938,7 +938,7 @@ func (r *Raft) addNode(id uint64) {
 	}
 	_, ok := r.Prs[id]
 	if ok == true {
-		log.Warnf("the node(id = %v) is already in raft group", id)
+		log.Warnf("the node(id = %v) is already in the raft group, it does not need to be added again", id)
 		return
 	}
 	log.Infof("success to add node(id = %v) to raft group", id)
