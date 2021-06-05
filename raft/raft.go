@@ -583,6 +583,31 @@ func (r *Raft) StepCandidate(m pb.Message){
 	}
 }
 
+// transferLeader transfers leader to peer
+func (r *Raft) transferLeader(to uint64) {
+	if r.State != StateLeader {
+		return
+	}
+	if _, ok := r.Prs[to]; !ok {
+		log.Warnf("transferee peer (id = %v) is not in the raft group", to)
+		return
+	}
+	if to == r.id {
+		log.Warnf("id = %v is already a leader, just set leadTransferee to None", r.id)
+		r.leadTransferee = None
+		return
+	}
+	r.leadTransferee = to
+	if r.Prs[r.leadTransferee].Match == r.RaftLog.LastIndex() {
+		msg := pb.Message{To: r.leadTransferee, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgTimeoutNow}
+		r.msgs = append(r.msgs, msg)
+		log.Infof("id = %v(leader) prepares to transfer leader to id = %v, sends MsgTimeoutNow message", r.id, r.leadTransferee)
+	} else {
+		r.sendAppend(r.leadTransferee)
+		log.Infof("id = %v(leader) prepares to transfer leader to id = %v, sends append message", r.id, r.leadTransferee)
+	}
+}
+
 // StepLeader the entrance of handle message for leader
 // It can only be called by Step()
 func (r *Raft) StepLeader(m pb.Message){
@@ -609,26 +634,7 @@ func (r *Raft) StepLeader(m pb.Message){
 		msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgRequestVoteResponse, Reject: true}
 		r.msgs = append(r.msgs, msg)
 	case pb.MessageType_MsgTransferLeader:
-		if _, ok := r.Prs[m.From]; !ok {
-			log.Warnf("id = %v(leader) drops the TransferLeader message from the peer(id = %v) which is not in the raft group", r.id, m.From)
-			return
-		}
-		if m.From == r.id {
-			log.Warnf("id = %v is already a leader, just set leadTransferee to None", r.id)
-			r.leadTransferee = None
-			return
-		}
-		r.leadTransferee = m.From
-		if r.Prs[m.From].Match == r.RaftLog.LastIndex() {
-			msg := pb.Message{To: m.From, From: r.id, Term: r.Term, MsgType: pb.MessageType_MsgTimeoutNow}
-			r.msgs = append(r.msgs, msg)
-			log.Infof("id = %v(leader) transfers leader to id = %v", r.id, m.From)
-		} else {
-			r.sendAppend(m.From)
-			// repeat to transfer leader
-			r.msgs = append(r.msgs, m)
-			log.Infof("id = %v(leader) prepares to transfer leader to id = %v", r.id, m.From)
-		}
+		r.transferLeader(m.From)
 	}
 }
 
@@ -876,6 +882,11 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 
 	// update committed
 	commitedChanged := r.UpdateCommitted()
+
+	if m.From == r.leadTransferee {
+		r.transferLeader(m.From)
+		return
+	}
 
 	// Continue to send Append if peer's log is different with leader's
 	if commitedChanged == false && r.Prs[m.From].Next <= r.RaftLog.LastIndex() {
