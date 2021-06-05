@@ -151,10 +151,15 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 			d.ScheduleCompactLog(compactLog.CompactIndex)
 			d.peerStorage.applyState.TruncatedState.Index = compactLog.CompactIndex
 			d.peerStorage.applyState.TruncatedState.Term = compactLog.CompactTerm
+		case raft_cmdpb.AdminCmdType_TransferLeader:
+			d.RaftGroup.TransferLeader(adminReq.TransferLeader.Peer.Id)
+			if resp != nil {
+				resp.AdminResponse = &raft_cmdpb.AdminResponse{CmdType: raft_cmdpb.AdminCmdType_TransferLeader}
+			}
 		default:
 			log.Errorf("unknown admin request, type = %v", adminReq.CmdType)
 		}
-		d.doneApplyEntry(kvWB, entry.Index, nil, nil)
+		d.doneApplyEntry(kvWB, entry.Index, cb, resp)
 		return
 	}
 	req := raftCmdRequest.Requests[0]
