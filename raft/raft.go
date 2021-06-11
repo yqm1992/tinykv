@@ -889,9 +889,15 @@ func (r *Raft) handleAppendResponse(m pb.Message) {
 	// Peer doesn't accept append operation
 	if (m.Reject == true){
 		peer := r.Prs[m.From]
-		// Update peer's Next
-		if (peer.Next > peer.Match + 1){
-			peer.Next = max(peer.Next-1, m.Index + 1)
+		possibleMatchIndex := m.Index
+		// possibleMatchIndex == peer.Match is normal, eg: possibleMatchIndex == 0 and peer.Match == 0
+		if possibleMatchIndex < peer.Match {
+			log.Errorf("id = %v receives RejectAppend response from peer id = %v, m.Index(%v) < peer.Match(%v)", r.id, m.From, possibleMatchIndex, peer.Match)
+		} else if possibleMatchIndex > r.RaftLog.LastIndex() {
+			log.Errorf("id = %v receives RejectAppend response from peer id = %v, m.Index(%v) > lastIndex(%v)", r.id, m.From, possibleMatchIndex, r.RaftLog.LastIndex())
+		} else {
+			// maybe needs to update Next
+			peer.Next = possibleMatchIndex+1
 		}
 		// Send Append again
 		r.sendAppend(m.From)
