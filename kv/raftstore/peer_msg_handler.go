@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/raftstore/meta"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	"github.com/pingcap-incubator/tinykv/raft"
 	"time"
 
 	"github.com/Connor1996/badger/y"
@@ -320,10 +321,21 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	ready := d.RaftGroup.Ready()
-	_, err := d.peerStorage.SaveReadyState(&ready)
+	applySnapResult, err := d.peerStorage.SaveReadyState(&ready)
 	if err != nil {
 		log.Fatalf("Failed to save ready state")
 		return
+	}
+	if applySnapResult != nil && !util.RegionEqual(applySnapResult.PrevRegion, applySnapResult.Region) {
+		prevNum := len(applySnapResult.PrevRegion.Peers)
+		d.RaftGroup.Raft.Prs = make(map[uint64]*raft.Progress)
+		for _, peer := range applySnapResult.Region.Peers {
+			d.RaftGroup.Raft.Prs[peer.Id] = &raft.Progress{}
+		}
+		curNum := len(applySnapResult.Region.Peers)
+		log.Warnf("[storeId = %v, peerId = %v], remake peers by snapshot num(Prs) %v --> %v", d.storeID(), d.PeerId(), prevNum, curNum)
+		d.ctx.storeMeta.setRegion(applySnapResult.Region, d.peer)
+		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: applySnapResult.Region})
 	}
 
 	// send messages
