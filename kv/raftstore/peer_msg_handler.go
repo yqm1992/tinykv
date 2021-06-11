@@ -147,6 +147,8 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 				}
 			}
 			curRegion.Peers = append(curRegion.Peers[:targetIndex], curRegion.Peers[targetIndex+1:]... )
+			// delete peer from the cache
+			delete(d.peerCache, adminReq.ChangePeer.Peer.Id)
 			if adminReq.ChangePeer.Peer.Id == d.PeerId() {
 				log.Infof("[storeId = %v, peerId = %v], prepares to destroy self", d.storeID(), d.PeerId())
 				d.destroyPeer()
