@@ -654,7 +654,7 @@ func (r *Raft) Step(m pb.Message) error {
 	//}
 	// Check if self is in the raft group
 	if _, ok := r.Prs[r.id]; !ok {
-		log.Warnf("id = %v is not in the raft group, can not handle the message", r.id)
+		log.Warnf("id = %v is not in the raft group, can not handle the %v message", r.id, m.MsgType)
 		return nil
 	}
 	if !isLocalMessage(m) {
