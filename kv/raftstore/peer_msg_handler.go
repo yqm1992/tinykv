@@ -115,6 +115,44 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 	switch adminReq.CmdType {
 	case raft_cmdpb.AdminCmdType_InvalidAdmin:
 		log.Errorf("here comes a %v request", adminReq.CmdType)
+	case raft_cmdpb.AdminCmdType_ChangePeer:
+		raftPeerNum := len(d.RaftGroup.Raft.Prs)
+		regionPeerNum := len(d.Region().Peers)
+		if raftPeerNum != regionPeerNum {
+			log.Fatalf("id = %v: num(raft.peers) = %v, num(region.peers) = %v, mismatch", d.PeerId(), raftPeerNum, regionPeerNum)
+		}
+		cc := eraftpb.ConfChange{ChangeType: adminReq.ChangePeer.ChangeType, NodeId: adminReq.ChangePeer.Peer.Id}
+		confState := d.RaftGroup.ApplyConfChange(cc)
+		if resp != nil {
+			resp.AdminResponse = &raft_cmdpb.AdminResponse{CmdType: raft_cmdpb.AdminCmdType_ChangePeer}
+		}
+		// check if ChangePeer succeeds
+		if raftPeerNum == len(confState.Nodes) {
+			break
+		}
+		curRegion := d.Region()
+		if _, ok := d.RaftGroup.Raft.Prs[adminReq.ChangePeer.Peer.Id]; ok == true {
+			//Add Node to peers
+			curRegion.Peers = append(curRegion.Peers, adminReq.ChangePeer.Peer)
+		} else {
+			// Remove Node from peers
+			targetIndex := len(curRegion.Peers)
+			for index, peer := range curRegion.Peers {
+				if peer.GetId() == adminReq.ChangePeer.Peer.Id {
+					targetIndex = index
+					break
+				}
+			}
+			curRegion.Peers = append(curRegion.Peers[:targetIndex], curRegion.Peers[targetIndex+1:]... )
+		}
+		log.Infof("[storeId = %v, peerId = %v], %v [storeId = %v, peerId = %v], num(region.peers) = %v --> %v", d.storeID(), d.PeerId(), adminReq.ChangePeer.ChangeType, adminReq.ChangePeer.Peer.StoreId, adminReq.ChangePeer.Peer.Id, regionPeerNum, len(d.Region().Peers))
+		curRegion.RegionEpoch.ConfVer++
+		d.ctx.storeMeta.setRegion(curRegion, d.peer)
+		kvWB := new(engine_util.WriteBatch)
+		meta.WriteRegionState(kvWB, curRegion, rspb.PeerState_Normal)
+		if err := d.peerStorage.Engines.WriteKV(kvWB); err != nil {
+			log.Fatal(err)
+		}
 	case raft_cmdpb.AdminCmdType_CompactLog:
 		compactLog := adminReq.CompactLog
 		if compactLog == nil {
@@ -260,7 +298,6 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	if err != nil {
 		log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
 	}
-	
 	if raftCmdRequest.AdminRequest != nil {
 		d.applyAdminEntry(raftCmdRequest, kvWB, entry.Index, cb, resp)
 	} else {
