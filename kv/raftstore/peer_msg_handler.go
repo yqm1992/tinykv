@@ -144,6 +144,11 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 				}
 			}
 			curRegion.Peers = append(curRegion.Peers[:targetIndex], curRegion.Peers[targetIndex+1:]... )
+			if adminReq.ChangePeer.Peer.Id == d.PeerId() {
+				log.Infof("[storeId = %v, peerId = %v], prepares to destroy self", d.storeID(), d.PeerId())
+				d.destroyPeer()
+				return
+			}
 		}
 		log.Infof("[storeId = %v, peerId = %v], %v [storeId = %v, peerId = %v], num(region.peers) = %v --> %v", d.storeID(), d.PeerId(), adminReq.ChangePeer.ChangeType, adminReq.ChangePeer.Peer.StoreId, adminReq.ChangePeer.Peer.Id, regionPeerNum, len(d.Region().Peers))
 		curRegion.RegionEpoch.ConfVer++
