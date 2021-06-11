@@ -309,6 +309,11 @@ func (r *Raft) sendHeartbeat(to uint64) {
 // tick advances the internal logical clock by a single tick.
 func (r *Raft) tick() {
 	// Your Code Here (2A).
+	// Check if self is in the raft group
+	if _, ok := r.Prs[r.id]; !ok {
+		log.Warnf("id = %v: self is not in the raft group %v, ignore tick", r.id, nodes(r))
+		return
+	}
 	switch r.State {
 	case StateFollower:
 		r.electionElapsed++
