@@ -966,15 +966,15 @@ func (r *Raft) addNode(id uint64) {
 	// Your Code Here (3A).
 	// TODO need to check if r is leader ?
 	if id == None {
-		log.Errorf("can not add node(id = %v)", id)
+		log.Errorf("id = %v: can not add node(id = %v)", r.id, id)
 		return
 	}
 	_, ok := r.Prs[id]
 	if ok == true {
-		log.Warnf("the node(id = %v) is already in the raft group, it does not need to be added again", id)
+		log.Warnf("id = %v: the node(id = %v) is already in the raft group %v, it does not need to be added again", r.id, id, nodes(r))
 		return
 	}
-	log.Infof("success to add node(id = %v) to raft group", id)
+	log.Infof("id = %v: success to add node(id = %v) to raft group, current raft group: %v", r.id, id, nodes(r))
 	r.Prs[id] = &Progress{Match: 0, Next: r.RaftLog.LastIndex()+1}
 }
 
@@ -984,15 +984,15 @@ func (r *Raft) removeNode(id uint64) {
 	// TODO need to check if r is leader ?
 	_, ok := r.Prs[id]
 	if ok != true {
-		log.Errorf("failed to remove id = %v, because it's not in the raft group", id)
+		log.Errorf("id = %v: failed to remove node(id = %v), because it's not in the raft group %v", r.id, id, nodes(r))
 		return
 	}
 	if id == r.Lead && len(r.Prs) > 1 {
-		log.Errorf("failed to remove id = %v, because it is the leader and not the last peer in raft group", id)
+		log.Errorf("id = %v: failed to remove node(id = %v), because it is the leader and not the last peer in the raft group %v", r.id, id, nodes(r))
 		return
 	}
 	delete(r.Prs, id)
-	log.Infof("success to remove id = %v from raft group", id)
+	log.Infof("id = %v: success to remove node(id = %v) from the raft group, current raft group: %v", r.id, id, nodes(r))
 	// the quorum may decrease, so we should check if the committed needs to be updated
 	if r.State == StateLeader {
 		r.UpdateCommitted()
