@@ -346,8 +346,10 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		// get proposal for this entry
 		var cb *message.Callback
 		cb, d.proposals = d.findCallback(&entry, d.proposals)
-
 		d.applyEntry(&entry, cb)
+		if d.stopped {
+			return
+		}
 	}
 
 	// Advance
