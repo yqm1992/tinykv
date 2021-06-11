@@ -131,6 +131,8 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 		if raftPeerNum == len(confState.Nodes) {
 			break
 		}
+		// region has changed, the cached snapshot should be dropped
+		d.RaftGroup.Raft.RaftLog.ResetCacheSnapshot()
 		curRegion := d.Region()
 		if _, ok := d.RaftGroup.Raft.Prs[adminReq.ChangePeer.Peer.Id]; ok == true {
 			//Add Node to peers
