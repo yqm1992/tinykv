@@ -974,8 +974,8 @@ func (r *Raft) addNode(id uint64) {
 		log.Warnf("id = %v: the node(id = %v) is already in the raft group %v, it does not need to be added again", r.id, id, nodes(r))
 		return
 	}
-	log.Infof("id = %v: success to add node(id = %v) to raft group, current raft group: %v", r.id, id, nodes(r))
 	r.Prs[id] = &Progress{Match: 0, Next: r.RaftLog.LastIndex()+1}
+	log.Infof("id = %v: success to add node(id = %v) to raft group, current raft group: %v", r.id, id, nodes(r))
 }
 
 // removeNode remove a node from raft group
