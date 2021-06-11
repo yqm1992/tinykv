@@ -153,6 +153,7 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 		log.Infof("[storeId = %v, peerId = %v], %v [storeId = %v, peerId = %v], num(region.peers) = %v --> %v", d.storeID(), d.PeerId(), adminReq.ChangePeer.ChangeType, adminReq.ChangePeer.Peer.StoreId, adminReq.ChangePeer.Peer.Id, regionPeerNum, len(d.Region().Peers))
 		curRegion.RegionEpoch.ConfVer++
 		d.ctx.storeMeta.setRegion(curRegion, d.peer)
+		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: curRegion})
 		kvWB := new(engine_util.WriteBatch)
 		meta.WriteRegionState(kvWB, curRegion, rspb.PeerState_Normal)
 		if err := d.peerStorage.Engines.WriteKV(kvWB); err != nil {
