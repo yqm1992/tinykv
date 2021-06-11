@@ -226,3 +226,18 @@ func (l *RaftLog) dropEntries(startIndex uint64) {
 	// update stableIndex
 	l.stabled = min(l.stabled, l.LastIndex())
 }
+
+// GetCacheSnapshot returns cache snapshot
+func (l *RaftLog) GetCacheSnapshot() *pb.Snapshot {
+	return l.localSnapshot
+}
+
+// ResetCacheSnapshot clears the cache snapshot
+func (l *RaftLog) ResetCacheSnapshot() {
+	l.localSnapshot = nil
+}
+
+// SetCacheSnapshot sets cache snapshot
+func (l *RaftLog) SetCacheSnapshot(snapshot *pb.Snapshot) {
+	l.localSnapshot = snapshot
+}
