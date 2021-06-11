@@ -18,6 +18,7 @@ import (
 	"errors"
 	"github.com/pingcap-incubator/tinykv/log"
 	pb "github.com/pingcap-incubator/tinykv/proto/pkg/eraftpb"
+	rspb "github.com/pingcap-incubator/tinykv/proto/pkg/raft_serverpb"
 	"math/rand"
 )
 
@@ -224,10 +225,24 @@ func (r *Raft) sendAppend(to uint64) bool {
 			Term: r.Term,
 			MsgType: pb.MessageType_MsgSnapshot,
 		}
-		if r.RaftLog.localSnapshot != nil && r.RaftLog.localSnapshot.Metadata.Index >= peer.Next {
-			msg.Snapshot = r.RaftLog.localSnapshot
-			r.msgs = append(r.msgs, msg)
-			return true
+		if r.RaftLog.localSnapshot != nil {
+			cacheSnapshot := r.RaftLog.localSnapshot
+			snapData := new(rspb.RaftSnapshotData)
+			if err := snapData.Unmarshal(cacheSnapshot.Data); err != nil {
+				log.Fatal(err)
+			}
+			contains := false
+			for _, peer := range snapData.Region.Peers {
+				if peer.Id == to {
+					contains = true
+					break
+				}
+			}
+			if cacheSnapshot.Metadata.Index >= peer.Next && contains {
+				msg.Snapshot = r.RaftLog.localSnapshot
+				r.msgs = append(r.msgs, msg)
+				return true
+			}
 		}
 		snapShot, err := r.RaftLog.storage.Snapshot()
 		if err == ErrSnapshotTemporarilyUnavailable {
