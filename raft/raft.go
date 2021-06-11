@@ -974,7 +974,9 @@ func (r *Raft) addNode(id uint64) {
 		log.Warnf("id = %v: the node(id = %v) is already in the raft group %v, it does not need to be added again", r.id, id, nodes(r))
 		return
 	}
-	r.Prs[id] = &Progress{Match: 0, Next: r.RaftLog.LastIndex()+1}
+	// set peer's Next = 0 to force the leader send snapshot to the new added node,
+	// instead of sending normal appendEntries (peer's response msg may be dropped because it may be stale)
+	r.Prs[id] = &Progress{Match: 0, Next: 0}
 	log.Infof("id = %v: success to add node(id = %v) to raft group, current raft group: %v", r.id, id, nodes(r))
 }
 
