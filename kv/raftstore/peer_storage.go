@@ -354,6 +354,8 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	ps.applyState.TruncatedState.Term = snapshotTerm
 	kvWB.SetMeta(meta.ApplyStateKey(ps.region.GetId()), ps.applyState)
 	// set regionState
+	prevRegion := ps.region
+	ps.region = snapData.Region
 	newRegionState := rspb.RegionLocalState{Region: ps.region}
 	kvWB.SetMeta(meta.RegionStateKey(ps.region.GetId()), &newRegionState)
 	// set raftState
@@ -368,7 +370,7 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	if err := ps.Engines.WriteRaft(raftWB); err != nil {
 		return nil, err
 	}
-	return &ApplySnapResult{ps.Region(), ps.Region()}, nil
+	return &ApplySnapResult{prevRegion, ps.Region()}, nil
 }
 
 // Save memory states to disk.
