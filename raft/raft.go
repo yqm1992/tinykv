@@ -992,7 +992,7 @@ func (r *Raft) removeNode(id uint64) {
 	// TODO need to check if r is leader ?
 	_, ok := r.Prs[id]
 	if ok != true {
-		log.Errorf("id = %v: failed to remove node(id = %v), because it's not in the raft group %v", r.id, id, nodes(r))
+		log.Warnf("id = %v: the node(id = %v) to be removed is already not in the raft group %v", r.id, id, nodes(r))
 		return
 	}
 	if id == r.Lead && len(r.Prs) > 1 {
