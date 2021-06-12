@@ -211,7 +211,7 @@ func (rn *RawNode) Advance(rd Ready) {
 	if rd.SoftState != nil {
 		rn.softState = *rd.SoftState
 	}
-	rn.Raft.RaftLog.applied = rn.Raft.RaftLog.committed
+	rn.Raft.RaftLog.applied = rn.Raft.RaftLog.applied + uint64(len(rd.CommittedEntries))
 	rn.Raft.RaftLog.stabled = rn.Raft.RaftLog.LastIndex()
 	rn.Raft.msgs = make([]pb.Message, 0)
 }
