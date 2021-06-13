@@ -261,8 +261,7 @@ func (d *peerMsgHandler) applyNormalEntry(raftCmdRequest raft_cmdpb.RaftCmdReque
 			break
 		}
 		get := req.Get
-		if ! d.isRangeValid(get.Key) {
-			err = errors.Errorf("key is out of the range of current region")
+		if err = util.CheckKeyInRegion(get.Key, d.Region()); err != nil {
 			resp = ErrResp(err)
 			break
 		}
