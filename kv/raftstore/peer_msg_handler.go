@@ -190,6 +190,50 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 		if resp != nil {
 			resp.AdminResponse = &raft_cmdpb.AdminResponse{CmdType: raft_cmdpb.AdminCmdType_TransferLeader}
 		}
+	case raft_cmdpb.AdminCmdType_Split:
+		splitReq := adminReq.Split
+		if err := util.CheckKeyInRegion(splitReq.SplitKey, d.Region()); err != nil {
+			log.Error(err)
+			break
+		}
+		if len(splitReq.NewPeerIds) != len(d.Region().GetPeers()) {
+			log.Errorf("newRegion(len = %v), curRegion(len = %v), does not match", len(splitReq.NewPeerIds), len(d.Region().GetPeers()))
+			break
+		}
+		curRegion := d.Region()
+		newRegion := &metapb.Region{
+			Id: splitReq.GetNewRegionId(),
+			StartKey: splitReq.SplitKey,
+			EndKey: d.Region().GetEndKey(),
+			RegionEpoch: &metapb.RegionEpoch{
+				Version: InitEpochVer,
+				ConfVer: InitEpochConfVer,
+			},
+		}
+		for idx, peerInfo := range curRegion.Peers {
+			// TODO: if region.peers of different nodes are the same order ?
+			newRegion.Peers = append(newRegion.Peers, &metapb.Peer{Id: splitReq.NewPeerIds[idx], StoreId: peerInfo.StoreId})
+		}
+		curRegion.RegionEpoch.Version++
+		curRegion.EndKey = splitReq.SplitKey
+		newPeer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, newRegion)
+		if err != nil {
+			log.Fatal(err)
+		}
+		d.RaftGroup.Raft.RaftLog.ResetCacheSnapshot()
+		kvWB := new(engine_util.WriteBatch)
+		meta.WriteRegionState(kvWB, curRegion, rspb.PeerState_Normal)
+		meta.WriteRegionState(kvWB, newRegion, rspb.PeerState_Normal)
+		if err := d.peerStorage.Engines.WriteKV(kvWB); err != nil {
+			log.Fatal(err)
+		}
+		storeMeta := d.ctx.storeMeta
+		storeMeta.Lock()
+		defer storeMeta.Unlock()
+		storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: newRegion})
+		storeMeta.regions[newRegion.GetId()] = newRegion
+		d.ctx.router.register(newPeer)
+		_ = d.ctx.router.send(newRegion.GetId(), message.Msg{Type: message.MsgTypeStart})
 	default:
 		log.Errorf("unknown admin request, type = %v", adminReq.CmdType)
 	}
