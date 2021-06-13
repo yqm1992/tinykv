@@ -380,7 +380,7 @@ func (r *Raft) becomeFollower(term uint64, lead uint64) {
 	r.Term, r.Lead = term, lead
 
 	// log should be printed when term will not be changed
-	log.Infof("Id = %v becomes follower (lead = %v) in term %v", r.id, r.Lead, r.Term)
+	log.Infof("Id = %v becomes follower (leader = %v) of raft group %v in term %v", r.id, r.Lead, nodes(r), r.Term)
 }
 
 // bcastMessage broadcast message to peers
@@ -434,7 +434,7 @@ func (r *Raft) becomeCandidate() {
 	r.votes[r.id] = true
 
 	// log should be printed when term will not be changed
-	log.Infof("Id = %v becomes candidate in term %v", r.id, r.Term)
+	log.Infof("Id = %v becomes candidate of raft group %v in term %v", r.id, nodes(r), r.Term)
 }
 
 // becomeLeader transform this peer's state to leader
@@ -445,7 +445,7 @@ func (r *Raft) becomeLeader() {
 		log.Fatalf("only candidate can become leader, current state = %v", r.State)
 	}
 
-	log.Infof("Id = %v becomes leader in term %v", r.id, r.Term)
+	log.Infof("Id = %v becomes leader of raft group %v in term %v", r.id, nodes(r), r.Term)
 
 	r.State = StateLeader
 	r.Lead = r.id
@@ -715,7 +715,7 @@ func (r *Raft)handleVoteRequest(m pb.Message){
 		if (localLogTerm < m.LogTerm || (localLogTerm == m.LogTerm && localLastIndex <= m.Index)){
 			msg.Reject = false
 			r.Vote = m.From
-			log.Infof("vote: (id = %v) ---> (id = %v) in term %v", r.id, r.Vote, r.Term)
+			log.Infof("vote: (id = %v) ---> (id = %v) of raft group %v in term %v", r.id, r.Vote, nodes(r), r.Term)
 		} else{
 			msg.Reject = true
 		}
