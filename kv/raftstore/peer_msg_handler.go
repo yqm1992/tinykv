@@ -327,6 +327,23 @@ func (d *peerMsgHandler) applyNormalEntry(raftCmdRequest raft_cmdpb.RaftCmdReque
 	d.doneApplyEntry(kvWB, appliedIndex, cb, resp)
 }
 
+// preApplyEntry checks if regionEpoch is qualified
+func (d *peerMsgHandler) preApplyEntry(req *raft_cmdpb.RaftCmdRequest) error {
+	err := util.CheckRegionEpoch(req, d.Region(), true)
+	if errEpochNotMatching, ok := err.(*util.ErrEpochNotMatch); ok {
+		// Attach the region which might be split from the current region. But it doesn't
+		// matter if the region is not split from the current region. If the region meta
+		// received by the TiKV driver is newer than the meta cached in the driver, the meta is
+		// updated.
+		siblingRegion := d.findSiblingRegion()
+		if siblingRegion != nil {
+			errEpochNotMatching.Regions = append(errEpochNotMatching.Regions, siblingRegion)
+		}
+		return errEpochNotMatching
+	}
+	return err
+}
+
 func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	if entry == nil {
 		log.Fatalf("Cannot apply a nil entry")
@@ -344,6 +361,13 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	err := raftCmdRequest.Unmarshal(entry.Data)
 	if err != nil {
 		log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
+	}
+	if err := d.preApplyEntry(&raftCmdRequest); err != nil {
+		if resp != nil {
+			resp = ErrResp(err)
+		}
+		d.doneApplyEntry(kvWB, entry.Index, cb, resp)
+		return
 	}
 	if raftCmdRequest.AdminRequest != nil {
 		d.applyAdminEntry(raftCmdRequest, kvWB, entry.Index, cb, resp)
