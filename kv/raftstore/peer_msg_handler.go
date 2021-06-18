@@ -212,17 +212,8 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 			log.Fatal(err)
 		}
 		d.RaftGroup.Raft.RaftLog.ResetCacheSnapshot()
-		kvWB := new(engine_util.WriteBatch)
-		meta.WriteRegionState(kvWB, curRegion, rspb.PeerState_Normal)
-		meta.WriteRegionState(kvWB, newRegion, rspb.PeerState_Normal)
-		if err := d.peerStorage.Engines.WriteKV(kvWB); err != nil {
-			log.Fatal(err)
-		}
-		storeMeta := d.ctx.storeMeta
-		storeMeta.Lock()
-		defer storeMeta.Unlock()
-		storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: newRegion})
-		storeMeta.regions[newRegion.GetId()] = newRegion
+		d.peer.updateRegion(d.ctx, curRegion)
+		newPeer.updateRegion(d.ctx, newRegion)
 		d.ctx.router.register(newPeer)
 		_ = d.ctx.router.send(newRegion.GetId(), message.Msg{Type: message.MsgTypeStart})
 	default:
