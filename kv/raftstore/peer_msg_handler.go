@@ -183,8 +183,16 @@ func (d *peerMsgHandler) applyAdminEntry(raftCmdRequest raft_cmdpb.RaftCmdReques
 		}
 	case raft_cmdpb.AdminCmdType_Split:
 		splitReq := adminReq.Split
+		if splitReq.SplitKey == nil {
+			log.Errorf("missing splitKey")
+			break
+		}
 		if err := util.CheckKeyInRegion(splitReq.SplitKey, d.Region()); err != nil {
 			log.Error(err)
+			break
+		}
+		if bytes.Compare(splitReq.SplitKey, d.Region().StartKey) == 0 {
+			log.Errorf("splitKey: %v can not be equal to region.StartKey: %v", splitReq.SplitKey, d.Region().StartKey)
 			break
 		}
 		if len(splitReq.NewPeerIds) != len(d.Region().GetPeers()) {
