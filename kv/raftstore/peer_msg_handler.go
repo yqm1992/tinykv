@@ -314,7 +314,19 @@ func (d *peerMsgHandler) applyNormalEntry(raftCmdRequest raft_cmdpb.RaftCmdReque
 		}
 		if resp != nil {
 			cb.Txn = d.peerStorage.Engines.Kv.NewTransaction(false)
-			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Snap, Snap: &raft_cmdpb.SnapResponse{Region: d.Region()}})
+			// use the replicated region, instead of d.Region(), because the
+			// region is a pointer, it will change if the peer.Region splits.
+			snapRegion := &metapb.Region{
+				Id: d.Region().GetId(),
+				StartKey: d.Region().GetStartKey(),
+				EndKey: d.Region().GetEndKey(),
+				RegionEpoch: &metapb.RegionEpoch{
+					Version: d.Region().GetRegionEpoch().Version,
+					ConfVer: d.Region().GetRegionEpoch().ConfVer,
+				},
+				// it is unnecessary to attach peers info to the snapRegion
+			}
+			resp.Responses = append(resp.Responses, &raft_cmdpb.Response{CmdType: raft_cmdpb.CmdType_Snap, Snap: &raft_cmdpb.SnapResponse{Region: snapRegion}})
 		}
 	default:
 		log.Errorf("here comes a request with unknown cmd_type: %v", req.CmdType)
