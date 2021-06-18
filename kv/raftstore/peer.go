@@ -393,3 +393,16 @@ func (p *peer) sendRaftMessage(msg eraftpb.Message, trans Transport) error {
 	sendMsg.Message = &msg
 	return trans.Send(sendMsg)
 }
+
+func (p *peer) updateRegion(ctx *GlobalContext, curRegion *metapb.Region) {
+	kvWB := new(engine_util.WriteBatch)
+	meta.WriteRegionState(kvWB, curRegion, rspb.PeerState_Normal)
+	if err := p.peerStorage.Engines.WriteKV(kvWB); err != nil {
+		log.Fatal(err)
+	}
+	storeMeta := ctx.storeMeta
+	storeMeta.Lock()
+	defer storeMeta.Unlock()
+	storeMeta.setRegion(curRegion, p)
+	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: curRegion})
+}
