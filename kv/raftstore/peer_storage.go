@@ -334,11 +334,11 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	snapshotTerm := snapshot.Metadata.Term
 	notifier := make(chan bool, 1)
 	applyTask := runner.RegionTaskApply{
-		RegionId: ps.Region().GetId(),
+		RegionId: snapData.Region.Id,
 		Notifier: notifier,
 		SnapMeta: &eraftpb.SnapshotMetadata{ConfState: snapshot.Metadata.ConfState, Index: snapshotIndex, Term: snapshotTerm},
-		StartKey: ps.region.GetStartKey(),
-		EndKey: ps.region.GetEndKey(),
+		StartKey: snapData.Region.StartKey,
+		EndKey: snapData.Region.EndKey,
 	}
 	// send task to regionWorker which really does applySnapshot
 	ps.regionSched <- &applyTask
