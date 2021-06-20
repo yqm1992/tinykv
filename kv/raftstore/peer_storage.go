@@ -346,7 +346,10 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 		log.Fatalf("failed to apply snapshot")
 	}
 	ps.clearMeta(kvWB, raftWB)
-	ps.clearExtraData(ps.Region())
+	// an uninitialized peer has no data (start and end is nil), it should skip over clearExtraData()
+	if ps.isInitialized() {
+		ps.clearExtraData(snapData.Region)
+	}
 	// TODO how to ensure modifying of kvDB and raftDB is atomic
 	// set applyState
 	ps.applyState.AppliedIndex = snapshotIndex
