@@ -279,7 +279,39 @@ func (c *RaftCluster) handleStoreHeartbeat(stats *schedulerpb.StoreStats) error 
 // processRegionHeartbeat updates the region information.
 func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 	// Your Code Here (3C).
+	heartbeatEpoch := region.GetRegionEpoch()
+	if heartbeatEpoch == nil {
+		return errors.Errorf("there is no epoch info in this region heartbeat")
+	}
+	localRegion := c.core.GetRegion(region.GetID())
+	var overlapRegions []*core.RegionInfo
+	err := errors.Errorf("this region heartbeat is stale")
+	if localRegion != nil {
+		localEpoch := localRegion.GetRegionEpoch()
+		if heartbeatEpoch.Version < localEpoch.Version || heartbeatEpoch.ConfVer < localEpoch.ConfVer {
+			return err
+		}
+	} else {
+		overlapRegions = c.core.GetOverlaps(region)
+		for _, curRegion := range overlapRegions {
+			localEpoch := curRegion.GetRegionEpoch()
+			if heartbeatEpoch.Version < localEpoch.Version || heartbeatEpoch.ConfVer < localEpoch.ConfVer {
+				return err
+			}
+		}
+	}
 
+	c.core.PutRegion(region)
+	for _, peer := range region.GetPeers() {
+		storeId := peer.GetStoreId()
+		// recompute count info
+		leaderCount := c.core.GetStoreLeaderCount(storeId)
+		regionCount := c.core.GetStoreRegionCount(storeId)
+		pendingPeerCount := c.core.GetStorePendingPeerCount(storeId)
+		leaderSize := c.core.GetStoreLeaderRegionSize(storeId)
+		regionSize := c.core.GetStoreRegionSize(storeId)
+		c.core.UpdateStoreStatus(storeId, leaderCount, regionCount, pendingPeerCount, leaderSize, regionSize)
+	}
 	return nil
 }
 
