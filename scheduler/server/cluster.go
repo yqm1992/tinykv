@@ -312,6 +312,15 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 		regionSize := c.core.GetStoreRegionSize(storeId)
 		c.core.UpdateStoreStatus(storeId, leaderCount, regionCount, pendingPeerCount, leaderSize, regionSize)
 	}
+	// update info of prepareChecker
+	for _, curRegion := range overlapRegions {
+		if curRegion.GetLeader() != nil {
+			c.prepareChecker.remove(region)
+		}
+	}
+	if region.GetLeader() != nil && (localRegion == nil || localRegion.GetLeader() == nil) {
+		c.prepareChecker.collect(region)
+	}
 	return nil
 }
 
@@ -888,4 +897,17 @@ func (checker *prepareChecker) collect(region *core.RegionInfo) {
 		checker.reactiveRegions[p.GetStoreId()]++
 	}
 	checker.sum++
+}
+
+func (checker *prepareChecker) remove(region *core.RegionInfo) {
+	for _, p := range region.GetPeers() {
+		if checker.reactiveRegions[p.GetStoreId()] <= 0 {
+			panic(fmt.Sprintf("invalid value of reactiveRegions[storeID=%d]: %d", p.GetStoreId(), checker.reactiveRegions[p.GetStoreId()]))
+		}
+		checker.reactiveRegions[p.GetStoreId()]--
+	}
+	if checker.sum <= 0 {
+		panic(fmt.Sprintf("invalid value of checker.sum: %d", checker.sum))
+	}
+	checker.sum--
 }
