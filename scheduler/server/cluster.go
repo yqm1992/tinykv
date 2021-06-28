@@ -303,14 +303,8 @@ func (c *RaftCluster) processRegionHeartbeat(region *core.RegionInfo) error {
 
 	c.core.PutRegion(region)
 	for _, peer := range region.GetPeers() {
-		storeId := peer.GetStoreId()
-		// recompute count info
-		leaderCount := c.core.GetStoreLeaderCount(storeId)
-		regionCount := c.core.GetStoreRegionCount(storeId)
-		pendingPeerCount := c.core.GetStorePendingPeerCount(storeId)
-		leaderSize := c.core.GetStoreLeaderRegionSize(storeId)
-		regionSize := c.core.GetStoreRegionSize(storeId)
-		c.core.UpdateStoreStatus(storeId, leaderCount, regionCount, pendingPeerCount, leaderSize, regionSize)
+		// TODO if this separate lock method is valid (the read data may be stale)?
+		c.updateStoreStatusLocked(peer.GetStoreId())
 	}
 	// update info of prepareChecker
 	for _, curRegion := range overlapRegions {
