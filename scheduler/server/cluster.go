@@ -856,6 +856,7 @@ func (c *RaftCluster) putRegion(region *core.RegionInfo) error {
 }
 
 type prepareChecker struct {
+	sync.RWMutex
 	reactiveRegions map[uint64]int
 	start           time.Time
 	sum             int
@@ -893,6 +894,8 @@ func (checker *prepareChecker) check(c *RaftCluster) bool {
 }
 
 func (checker *prepareChecker) collect(region *core.RegionInfo) {
+	checker.Lock()
+	defer checker.Unlock()
 	for _, p := range region.GetPeers() {
 		checker.reactiveRegions[p.GetStoreId()]++
 	}
@@ -900,6 +903,8 @@ func (checker *prepareChecker) collect(region *core.RegionInfo) {
 }
 
 func (checker *prepareChecker) remove(region *core.RegionInfo) {
+	checker.Lock()
+	defer checker.Unlock()
 	for _, p := range region.GetPeers() {
 		if checker.reactiveRegions[p.GetStoreId()] <= 0 {
 			panic(fmt.Sprintf("invalid value of reactiveRegions[storeID=%d]: %d", p.GetStoreId(), checker.reactiveRegions[p.GetStoreId()]))
