@@ -17,6 +17,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/core"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule"
+	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/filter"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/operator"
 	"github.com/pingcap-incubator/tinykv/scheduler/server/schedule/opt"
 	"go.uber.org/zap"
@@ -44,6 +45,7 @@ type balanceRegionScheduler struct {
 	*baseScheduler
 	name         string
 	opController *schedule.OperatorController
+	filters      []filter.Filter
 }
 
 // newBalanceRegionScheduler creates a scheduler that tends to keep regions on
@@ -57,6 +59,7 @@ func newBalanceRegionScheduler(opController *schedule.OperatorController, opts .
 	for _, opt := range opts {
 		opt(s)
 	}
+	s.filters = []filter.Filter{filter.StoreStateFilter{ActionScope: s.GetName(), MoveRegion: true}}
 	return s
 }
 
@@ -78,7 +81,7 @@ func (s *balanceRegionScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
 	return s.opController.OperatorCount(operator.OpRegion) < cluster.GetRegionScheduleLimit()
 }
 
-func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operator {
+func (s *balanceRegionScheduler) ScheduleOld(cluster opt.Cluster) *operator.Operator {
 	// Your Code Here (3C).
 
 	stores := cluster.GetStores()
@@ -134,6 +137,68 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 			}
 		}
 		log.Debug("no operator created for selected stores", zap.String("scheduler", s.GetName()), zap.Uint64("source", srcID))
+	}
+	return nil
+}
+
+func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operator {
+	// Your Code Here (3C).
+
+	stores := cluster.GetStores()
+	sources := filter.SelectTargetStores(stores, s.filters, cluster)
+
+	if len(sources) < 2 {
+		return nil
+	}
+	// sort by desc
+	sort.Slice(sources, func(i, j int) bool {
+		return sources[i].GetRegionSize() > sources[j].GetRegionSize()
+	})
+	for index, source := range sources {
+		if index == len(sources) - 1 {
+			break
+		}
+		for  j := 0; j < balanceRegionRetryLimit; j++ {
+			if op := s.moveRegionOut(cluster, source); op != nil {
+				return op
+			}
+		}
+		log.Debug("no operator created for selected stores", zap.String("scheduler", s.GetName()), zap.Uint64("source", source.GetID()))
+	}
+	return nil
+}
+
+// moveRegionOut moves region from the source store.
+// It randomly selects a health region from the source store, then picks
+// the best store and moves the region
+func (s *balanceRegionScheduler) moveRegionOut(cluster opt.Cluster, source *core.StoreInfo) *operator.Operator {
+	stores := cluster.GetStores()
+	targets := filter.SelectTargetStores(stores, s.filters, cluster)
+	sort.Slice(targets, func(i, j int) bool {
+		return targets[i].GetRegionSize() < targets[j].GetRegionSize()
+	})
+	getRegionFuncs := make([]func(storeID uint64, opts ...core.RegionOption) *core.RegionInfo, 3)
+	getRegionFuncs[0] = cluster.RandPendingRegion
+	getRegionFuncs[1] = cluster.RandFollowerRegion
+	getRegionFuncs[2] = cluster.RandLeaderRegion
+	for i := 0; i < len(getRegionFuncs); i++ {
+		region := getRegionFuncs[i](source.GetID())
+		if region == nil {
+			continue
+		}
+		regionStores := region.GetStoreIds()
+		for j := 0; j < len(targets); j++ {
+			target := targets[j]
+			if target.GetRegionSize() >= source.GetRegionSize() {
+				break
+			}
+			if _, ok := regionStores[target.GetID()]; ok {
+				continue
+			}
+			if op := s.createOperator(cluster, region, source, target); op != nil {
+				return op
+			}
+		}
 	}
 	return nil
 }
