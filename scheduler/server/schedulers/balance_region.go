@@ -143,6 +143,9 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 // no new operator need to be created, otherwise create an operator that moves
 // region from the source store to the target store
 func (s *balanceRegionScheduler) createOperator(cluster opt.Cluster, region *core.RegionInfo, source, target *core.StoreInfo) *operator.Operator {
+	if len(region.GetPeers()) != cluster.GetMaxReplicas() {
+		return nil
+	}
 	if source.GetRegionSize() - target.GetRegionSize() < 2*region.GetApproximateSize() {
 		return nil
 	}
