@@ -81,29 +81,34 @@ func (s *balanceRegionScheduler) IsScheduleAllowed(cluster opt.Cluster) bool {
 func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operator {
 	// Your Code Here (3C).
 
-	storeArray := cluster.GetStores()
-	suitableStores := make([]*core.StoreInfo, 0)
+	stores := cluster.GetStores()
+	sources := make([]*core.StoreInfo, 0)
+	targets := make([]*core.StoreInfo, 0)
 	maxStoreDownTime := cluster.GetMaxStoreDownTime()
-	for _, curStore := range storeArray {
+	for _, curStore := range stores {
 		if curStore.IsUp() && curStore.DownTime() <= maxStoreDownTime {
-			suitableStores = append(suitableStores, curStore)
+			sources = append(sources, curStore)
+			targets = append(targets, curStore)
 		}
 	}
-	if len(suitableStores) < 2 {
+	if len(sources) < 2 {
 		return nil
 	}
 	// sort by desc
-	sort.Slice(suitableStores, func(i, j int) bool {
-		return suitableStores[i].GetRegionSize() > suitableStores[j].GetRegionSize()
+	sort.Slice(sources, func(i, j int) bool {
+		return sources[i].GetRegionSize() > sources[j].GetRegionSize()
 	})
-	targetStore := suitableStores[len(suitableStores)-1]
+	sort.Slice(targets, func(i, j int) bool {
+		return targets[i].GetRegionSize() < targets[j].GetRegionSize()
+	})
+	//targetStore := suitableStores[len(suitableStores)-1]
 	getRegionFuncs := make([]func(storeID uint64, opts ...core.RegionOption) *core.RegionInfo, 3)
 	getRegionFuncs[0] = cluster.RandPendingRegion
 	getRegionFuncs[1] = cluster.RandFollowerRegion
 	getRegionFuncs[2] = cluster.RandLeaderRegion
-	for _, curStore := range suitableStores {
+	for index, curStore := range sources {
 		// src and dst store can not be the same one
-		if curStore == targetStore {
+		if index == len(sources) - 1 {
 			break
 		}
 		srcStore := curStore
@@ -113,8 +118,17 @@ func (s *balanceRegionScheduler) Schedule(cluster opt.Cluster) *operator.Operato
 			for  k := 0; k < balanceRegionRetryLimit; k++ {
 				srcRegion := getRegionFunc(srcID)
 				if srcRegion != nil {
-					if op := s.createOperator(cluster, srcRegion, srcStore, targetStore); op != nil {
-						return op
+					srcRegionStores := srcRegion.GetStoreIds()
+					for _, targetStore := range targets {
+						if targetStore.GetRegionSize() >= srcStore.GetRegionSize() {
+							break
+						}
+						if _, ok := srcRegionStores[targetStore.GetID()]; ok {
+							continue
+						}
+						if op := s.createOperator(cluster, srcRegion, srcStore, targetStore); op != nil {
+							return op
+						}
 					}
 				}
 			}
