@@ -254,7 +254,56 @@ func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest
 
 func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
 	// Your Code Here (4B).
-	return nil, nil
+	if req == nil {
+		return nil, nil
+	}
+	log.Infof("prepare to commit transaction(startVersion: %v)", req.StartVersion)
+	if len(req.Keys) == 0 {
+		return &kvrpcpb.CommitResponse{}, nil
+	}
+	var reader storage.StorageReader
+	var err error
+	var lock *mvcc.Lock
+	resp := &kvrpcpb.CommitResponse{}
+
+	if reader, err = server.storage.Reader(req.GetContext()); err != nil {
+		return nil, err
+	}
+	txn := mvcc.NewMvccTxn(reader, req.StartVersion)
+	// acquire latches
+	var keysToLatch [][]byte
+	for _, key := range req.Keys {
+		if key != nil {
+			keysToLatch = append(keysToLatch, key)
+		}
+	}
+	server.Latches.WaitForLatches(keysToLatch)
+	defer server.Latches.ReleaseLatches(keysToLatch)
+	// prepare to commit
+	for _, key := range req.Keys {
+		if key == nil {
+			log.Warnf("commit key is nil, skip it !")
+			continue
+		}
+		// check lock
+		if lock, err = txn.GetLock(key); err != nil {
+			return nil, err
+		} else if lock == nil {
+			log.Warnf("abort commit of transaction(startTS: %v), lock of key:%v is not found, the transaction may be rollback !", txn.StartTS, key)
+			return resp, nil
+		} else if lock.Ts != txn.StartTS {
+			resp.Error = &kvrpcpb.KeyError{Locked: lock.Info(key), Retryable: "the key is locked by another transaction"}
+			return resp, nil
+		}
+		// it is unnecessary to check write conflict again, because the lock can promise it
+		write := &mvcc.Write{StartTS: txn.StartTS, Kind: lock.Kind}
+		txn.DeleteLock(key)
+		txn.PutWrite(key, req.CommitVersion, write)
+	}
+	if err = server.storage.Write(req.GetContext(), txn.Writes()); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
