@@ -7,6 +7,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/latches"
 	"github.com/pingcap-incubator/tinykv/kv/transaction/mvcc"
+	"github.com/pingcap-incubator/tinykv/log"
 	coppb "github.com/pingcap-incubator/tinykv/proto/pkg/coprocessor"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/tinykvpb"
@@ -167,7 +168,88 @@ func (server *Server) KvGet(_ context.Context, req *kvrpcpb.GetRequest) (*kvrpcp
 
 func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest) (*kvrpcpb.PrewriteResponse, error) {
 	// Your Code Here (4B).
-	return nil, nil
+	if req == nil {
+		return nil, nil
+	}
+	log.Debugf("prepare to prewrite transaction(startVersion: %v)", req.StartVersion)
+
+	if len(req.Mutations) == 0 {
+		return &kvrpcpb.PrewriteResponse{}, nil
+	}
+
+	var reader storage.StorageReader
+	var err error
+	var lock *mvcc.Lock
+
+	if reader, err = server.storage.Reader(req.GetContext()); err != nil {
+		return nil, err
+	}
+	primaryLock := req.GetPrimaryLock()
+	txn := mvcc.NewMvccTxn(reader, req.StartVersion)
+	// acquire latches
+	var keysToLatch [][]byte
+	for _, mut := range req.Mutations {
+		key := mut.GetKey()
+		if key != nil {
+			keysToLatch = append(keysToLatch, key)
+		}
+	}
+	server.Latches.WaitForLatches(keysToLatch)
+	defer server.Latches.ReleaseLatches(keysToLatch)
+
+	resp := &kvrpcpb.PrewriteResponse{}
+	type KeyErrorWrap struct{
+		Error       *kvrpcpb.KeyError
+	}
+	keyErrorWrap := &KeyErrorWrap{}
+	for _, mut := range req.Mutations {
+		key := mut.GetKey()
+		val := mut.GetValue()
+		op := mut.GetOp()
+		// check if there is lock and write conflict
+		if op == kvrpcpb.Op_Put || op == kvrpcpb.Op_Del {
+			// check lock
+			if lock, err = txn.GetLock(key); err != nil {
+				return nil, err
+			} else if lock.IsLockedFor(key, txn.StartTS, keyErrorWrap) {
+				resp.Errors = append(resp.Errors, keyErrorWrap.Error)
+				return resp, nil
+			}
+			// check write conflict
+			if recentWrite, writeTs, tempError := txn.MostRecentWrite(key); tempError != nil {
+				return nil, tempError
+			} else if recentWrite != nil && writeTs >= txn.StartTS {
+				keyError := &kvrpcpb.KeyError{Conflict: &kvrpcpb.WriteConflict{StartTs: txn.StartTS, ConflictTs: writeTs, Key: key, Primary: primaryLock}}
+				resp.Errors = append(resp.Errors, keyError)
+				return resp, nil
+			}
+		}
+		newLock := &mvcc.Lock{
+			Primary: primaryLock,
+			Ts: req.GetStartVersion(),
+			Ttl: req.GetLockTtl(),
+		}
+		switch op {
+		case kvrpcpb.Op_Put:
+			newLock.Kind = mvcc.WriteKindPut
+			txn.PutLock(key, newLock)
+			txn.PutValue(key, val)
+		case kvrpcpb.Op_Del:
+			newLock.Kind = mvcc.WriteKindDelete
+			txn.PutLock(key, newLock)
+			txn.DeleteValue(key)
+		case kvrpcpb.Op_Rollback:
+			log.Fatalf("no implementation of op type: %v", mut.GetOp())
+		case kvrpcpb.Op_Lock:
+			log.Fatalf("no implementation of op type: %v", mut.GetOp())
+		default:
+			log.Fatalf("unknown op type: %v", mut.GetOp())
+		}
+	}
+	if err = server.storage.Write(req.GetContext(), txn.Writes()); err != nil {
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*kvrpcpb.CommitResponse, error) {
