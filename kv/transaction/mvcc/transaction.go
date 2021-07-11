@@ -83,6 +83,7 @@ func (txn *MvccTxn) GetValue(key []byte) ([]byte, error) {
 	// Your Code Here (4A).
 	maxKey := EncodeKey(key, 0)
 	iterator := txn.Reader.IterCF(engine_util.CfWrite)
+	defer iterator.Close()
 	for iterator.Seek(EncodeKey(key, txn.StartTS)); iterator.Valid(); iterator.Next() {
 		item := iterator.Item()
 		if engine_util.ExceedEndKey(item.Key(), maxKey) {
@@ -122,6 +123,7 @@ func (txn *MvccTxn) CurrentWrite(key []byte) (*Write, uint64, error) {
 	maxKey := EncodeKey(key, 0)
 	minKey := EncodeKey(key, ^uint64(0))
 	iterator := txn.Reader.IterCF(engine_util.CfWrite)
+	defer iterator.Close()
 	for iterator.Seek(minKey); iterator.Valid(); iterator.Next() {
 		item := iterator.Item()
 		if engine_util.ExceedEndKey(item.Key(), maxKey) {
@@ -151,6 +153,7 @@ func (txn *MvccTxn) MostRecentWrite(key []byte) (*Write, uint64, error) {
 	maxKey := EncodeKey(key, 0)
 	minKey := EncodeKey(key, ^uint64(0))
 	iterator := txn.Reader.IterCF(engine_util.CfWrite)
+	defer iterator.Close()
 	for iterator.Seek(minKey); iterator.Valid(); iterator.Next() {
 		item := iterator.Item()
 		if engine_util.ExceedEndKey(item.Key(), maxKey) {
