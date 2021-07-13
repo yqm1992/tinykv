@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"github.com/pingcap-incubator/tinykv/kv/coprocessor"
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/storage/raft_storage"
@@ -313,7 +314,82 @@ func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrp
 
 func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
 	// Your Code Here (4C).
-	return nil, nil
+	if req == nil || req.PrimaryKey == nil {
+		return nil, nil
+	}
+
+	var reader storage.StorageReader
+	var err error
+	var lock *mvcc.Lock
+	resp := &kvrpcpb.CheckTxnStatusResponse{Action: kvrpcpb.Action_NoAction}
+
+	if reader, err = server.storage.Reader(req.GetContext()); err != nil {
+		return nil, err
+	}
+	txn := mvcc.NewMvccTxn(reader, req.GetLockTs())
+	req.GetCurrentTs()
+
+	// check if the transaction has been written
+	if write, writeTs, tempError := txn.CurrentWrite(req.PrimaryKey); tempError != nil {
+		return nil, tempError
+	} else if write != nil {
+		if write.Kind == mvcc.WriteKindRollback {
+			// has been rollback
+			log.Warnf("the transaction(startTs: %v) has already been rollback", txn.StartTS)
+		} else {
+			// has been committed
+			log.Warnf("the transaction(startTs: %v) has already been committed", txn.StartTS)
+			resp.CommitVersion = writeTs
+		}
+	} else {
+		// transaction has not been written
+		// check if there is lock
+		if lock, err = txn.GetLock(req.GetPrimaryKey()); err != nil {
+			return nil, err
+		} else if lock == nil || lock.Ts != txn.StartTS {
+			// lock is not found or is hold by another transaction, the transaction hast not been pre-written
+			keys := [][]byte{req.GetPrimaryKey()}
+			rollbackReq := &kvrpcpb.BatchRollbackRequest{Context: req.GetContext(), StartVersion: txn.StartTS, Keys: keys}
+			var rollbackResp *kvrpcpb.BatchRollbackResponse
+			if rollbackResp, err = server.KvBatchRollback(nil, rollbackReq); err != nil {
+				return nil, err
+			} else if rollbackResp.GetRegionError() != nil {
+				resp.RegionError = rollbackResp.GetRegionError()
+			} else if rollbackResp.GetError() != nil {
+				return nil, fmt.Errorf(rollbackResp.Error.GetAbort())
+			} else {
+				if lock == nil {
+					log.Warnf("lock is not found, the transaction(startTs: %v) hast not been pre-written", txn.StartTS)
+				} else {
+					log.Warnf("lock is hold by another transaction, the transaction(startTs: %v) hast not been pre-written", txn.StartTS)
+				}
+				resp.Action = kvrpcpb.Action_LockNotExistRollback
+			}
+		} else {
+			// has been pre-written(with lock hold)
+			currentPhysicTime := mvcc.PhysicalTime(req.GetCurrentTs())
+			lockPhysicTime := mvcc.PhysicalTime(lock.Ts)
+
+			if currentPhysicTime >= lockPhysicTime + lock.Ttl {
+				log.Warnf("the lock of transaction(startTs: %v) is timeout !", txn.StartTS)
+				keys := [][]byte{req.GetPrimaryKey()}
+				rollbackReq := &kvrpcpb.BatchRollbackRequest{Context: req.GetContext(), StartVersion: txn.StartTS, Keys: keys}
+				var rollbackResp *kvrpcpb.BatchRollbackResponse
+				if rollbackResp, err = server.KvBatchRollback(nil, rollbackReq); err != nil {
+					return nil, err
+				} else if rollbackResp.GetRegionError() != nil {
+					resp.RegionError = rollbackResp.GetRegionError()
+				} else if rollbackResp.GetError() != nil {
+					return nil, fmt.Errorf(rollbackResp.Error.GetAbort())
+				} else {
+					resp.Action = kvrpcpb.Action_TTLExpireRollback
+				}
+			} else {
+				log.Warnf("the lock of transaction(startTs: %v) is alive !", txn.StartTS)
+			}
+		}
+	}
+	return resp, nil
 }
 
 func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollbackRequest) (*kvrpcpb.BatchRollbackResponse, error) {
