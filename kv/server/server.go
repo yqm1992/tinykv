@@ -459,7 +459,55 @@ func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollb
 
 func (server *Server) KvResolveLock(_ context.Context, req *kvrpcpb.ResolveLockRequest) (*kvrpcpb.ResolveLockResponse, error) {
 	// Your Code Here (4C).
-	return nil, nil
+	if req == nil {
+		return nil, nil
+	}
+	if req.GetStartVersion() == 0 {
+		return &kvrpcpb.ResolveLockResponse{}, nil
+	}
+	if req.GetCommitVersion() != 0 && req.GetStartVersion() > req.GetCommitVersion() {
+		return &kvrpcpb.ResolveLockResponse{Error: &kvrpcpb.KeyError{Abort: fmt.Sprintf("commitVersion(%v) is greater than startVersion(%v)", req.GetCommitVersion(), req.GetStartVersion())}}, nil
+	}
+
+	var reader storage.StorageReader
+	var err error
+	resp := &kvrpcpb.ResolveLockResponse{}
+	var pairs []mvcc.KlPair
+
+	if reader, err = server.storage.Reader(req.GetContext()); err != nil {
+		return nil, err
+	}
+	txn := mvcc.NewMvccTxn(reader, req.StartVersion)
+	if pairs, err = mvcc.AllLocksForTxn(txn); err != nil {
+		return nil, err
+	}
+	var keys [][]byte
+	// TODO: where to use the primaryKey ?
+	//var primaryKey []byte
+	for _, item := range pairs {
+		keys = append(keys, item.Key)
+		//primaryKey = item.Lock.Primary
+	}
+	if req.CommitVersion == 0 {
+		// rollback
+		rollbackReq := &kvrpcpb.BatchRollbackRequest{Context: req.GetContext(), StartVersion: txn.StartTS, Keys: keys}
+		if rollbackResp, err := server.KvBatchRollback(nil, rollbackReq); err != nil {
+			return nil, err
+		} else {
+			resp.RegionError = rollbackResp.GetRegionError()
+			resp.Error = rollbackResp.GetError()
+		}
+	} else {
+		// commit
+		commitReq := &kvrpcpb.CommitRequest{Context: req.GetContext(), StartVersion: txn.StartTS, Keys: keys, CommitVersion: req.CommitVersion}
+		if commitResp, err := server.KvCommit(nil, commitReq); err != nil {
+			return nil, err
+		} else {
+			resp.RegionError = commitResp.GetRegionError()
+			resp.Error = commitResp.GetError()
+		}
+	}
+	return resp, nil
 }
 
 // SQL push down commands.
