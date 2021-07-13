@@ -5,6 +5,7 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 )
@@ -96,6 +97,15 @@ func (txn *MvccTxn) GetValue(key []byte) ([]byte, error) {
 		write, err2 := ParseWrite(value)
 		if err2 != nil {
 			return nil, err2
+		}
+		if write.Kind != WriteKindPut && write.Kind != WriteKindDelete {
+			log.Fatalf("found a write with kind: %v", write.Kind)
+			continue
+		}
+		if write.Kind == WriteKindPut {
+			return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, write.StartTS))
+		} else {
+			return nil, nil
 		}
 		return txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(key, write.StartTS))
 	}
