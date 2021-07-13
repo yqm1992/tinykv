@@ -309,7 +309,34 @@ func (server *Server) KvCommit(_ context.Context, req *kvrpcpb.CommitRequest) (*
 
 func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrpcpb.ScanResponse, error) {
 	// Your Code Here (4C).
-	return nil, nil
+	if req == nil {
+		return nil, nil
+	}
+
+	var reader storage.StorageReader
+	var err error
+	resp := &kvrpcpb.ScanResponse{}
+
+	if reader, err = server.storage.Reader(req.GetContext()); err != nil {
+		return nil, err
+	}
+	txn := mvcc.NewMvccTxn(reader, req.GetVersion())
+	scan := mvcc.NewScanner(req.GetStartKey(), txn)
+	defer scan.Close()
+
+	for i := uint32(0); i < req.GetLimit(); i++ {
+		if key, val, err := scan.Next(); err != nil {
+			keyError := &kvrpcpb.KeyError{Retryable: err.Error()}
+			resp.Pairs = append(resp.Pairs, &kvrpcpb.KvPair{Error: keyError})
+		} else if key != nil{
+			if val != nil {
+				resp.Pairs = append(resp.Pairs, &kvrpcpb.KvPair{Key: key, Value: val})
+			}
+		} else {
+			break
+		}
+	}
+	return resp, nil
 }
 
 func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnStatusRequest) (*kvrpcpb.CheckTxnStatusResponse, error) {
