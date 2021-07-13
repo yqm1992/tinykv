@@ -229,14 +229,13 @@ func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest
 			Primary: primaryLock,
 			Ts: req.GetStartVersion(),
 			Ttl: req.GetLockTtl(),
+			Kind: mvcc.WriteKindFromProto(op),
 		}
 		switch op {
 		case kvrpcpb.Op_Put:
-			newLock.Kind = mvcc.WriteKindPut
 			txn.PutLock(key, newLock)
 			txn.PutValue(key, val)
 		case kvrpcpb.Op_Del:
-			newLock.Kind = mvcc.WriteKindDelete
 			txn.PutLock(key, newLock)
 			txn.DeleteValue(key)
 		case kvrpcpb.Op_Rollback:
