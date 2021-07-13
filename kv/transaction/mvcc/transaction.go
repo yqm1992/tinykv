@@ -183,6 +183,16 @@ func EncodeKey(key []byte, ts uint64) []byte {
 	return newKey
 }
 
+// keyMaxVersion encodes a user key and appends the encoded max timestamp to a key
+func keyMaxVersion(key []byte) []byte {
+	return EncodeKey(key, ^uint64(0))
+}
+
+// keyMinVersion encodes a user key and appends the encoded min timestamp to a key
+func keyMinVersion(key []byte) []byte {
+	return EncodeKey(key, uint64(0))
+}
+
 // DecodeUserKey takes a key + timestamp and returns the key part.
 func DecodeUserKey(key []byte) []byte {
 	_, userKey, err := codec.DecodeBytes(key)
