@@ -388,6 +388,28 @@ func (d *peerMsgHandler) applyEntry(entry *eraftpb.Entry, cb *message.Callback){
 	}
 }
 
+func (d *peerMsgHandler) applyEntries(entries []eraftpb.Entry) {
+	if d.stopped {
+		return
+	}
+	// apply committed entries
+	if len(entries) > 0 {
+		aCtx := d.CreateApplyContext(entries)
+		aCtx.applyEntries()
+		if aCtx.stopped {
+			d.stopped = aCtx.stopped
+			return
+		}
+		// check if ctx.apply is success
+		expectedIndex := d.peerStorage.AppliedIndex() + uint64(len(entries))
+		curIndex := aCtx.applyState.GetAppliedIndex()
+		if expectedIndex != curIndex {
+			log.Fatalf("expectedAppliedIndex: %v, but appliedIndex: %v", expectedIndex, curIndex)
+		}
+		d.peerStorage.applyState = aCtx.applyState
+	}
+}
+
 func (d *peerMsgHandler) HandleRaftReady() {
 	if d.stopped {
 		return
@@ -462,20 +484,9 @@ func (d *peerMsgHandler) HandleRaftReadyNew() {
 	d.Send(d.ctx.trans, ready.Messages)
 
 	// apply committed entries
-	if len(ready.CommittedEntries) > 0 {
-		ctx := d.CreateApplyContext(ready.CommittedEntries)
-		ctx.applyEntries()
-		if ctx.stopped {
-			d.stopped = ctx.stopped
-			return
-		}
-		// check if ctx.apply is success
-		expectedIndex := d.peerStorage.AppliedIndex() + uint64(len(ready.CommittedEntries))
-		curIndex := ctx.applyState.GetAppliedIndex()
-		if expectedIndex != curIndex {
-			log.Fatalf("expectedAppliedIndex: %v, but appliedIndex: %v", expectedIndex, curIndex)
-		}
-		d.peerStorage.applyState = ctx.applyState
+	d.applyEntries(ready.CommittedEntries)
+	if d.stopped {
+		return
 	}
 	// Advance
 	d.RaftGroup.Advance(ready)
