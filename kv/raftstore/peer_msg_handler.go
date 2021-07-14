@@ -465,7 +465,10 @@ func (d *peerMsgHandler) HandleRaftReadyNew() {
 	if len(ready.CommittedEntries) > 0 {
 		ctx := d.CreateApplyContext(ready.CommittedEntries)
 		ctx.applyEntries()
-
+		if ctx.stopped {
+			d.stopped = ctx.stopped
+			return
+		}
 		// check if ctx.apply is success
 		expectedIndex := d.peerStorage.AppliedIndex() + uint64(len(ready.CommittedEntries))
 		curIndex := ctx.applyState.GetAppliedIndex()
@@ -473,10 +476,6 @@ func (d *peerMsgHandler) HandleRaftReadyNew() {
 			log.Fatalf("expectedAppliedIndex: %v, but appliedIndex: %v", expectedIndex, curIndex)
 		}
 		d.peerStorage.applyState = ctx.applyState
-		if ctx.stopped {
-			d.stopped = ctx.stopped
-			return
-		}
 	}
 	// Advance
 	d.RaftGroup.Advance(ready)
