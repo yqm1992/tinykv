@@ -432,6 +432,285 @@ func (d *peerMsgHandler) HandleRaftReady() {
 	d.RaftGroup.Advance(ready)
 }
 
+func (d *peerMsgHandler) HandleRaftReadyNew() {
+	if d.stopped {
+		return
+	}
+	// Your Code Here (2B).
+	if !d.RaftGroup.HasReady() {
+		return
+	}
+	ready := d.RaftGroup.Ready()
+	applySnapResult, err := d.peerStorage.SaveReadyState(&ready)
+	if err != nil {
+		log.Fatalf("Failed to save ready state")
+		return
+	}
+	if applySnapResult != nil && !util.RegionEqual(applySnapResult.PrevRegion, applySnapResult.Region) {
+		prevNum := len(applySnapResult.PrevRegion.Peers)
+		d.RaftGroup.Raft.Prs = make(map[uint64]*raft.Progress)
+		for _, peer := range applySnapResult.Region.Peers {
+			d.RaftGroup.Raft.Prs[peer.Id] = &raft.Progress{}
+		}
+		curNum := len(applySnapResult.Region.Peers)
+		log.Warnf("[storeId = %v, peerId = %v], remake peers by snapshot num(Prs) %v --> %v", d.storeID(), d.PeerId(), prevNum, curNum)
+		d.ctx.storeMeta.setRegion(applySnapResult.Region, d.peer)
+		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: applySnapResult.Region})
+	}
+
+	// send messages
+	d.Send(d.ctx.trans, ready.Messages)
+
+	// apply committed entries
+	if len(ready.CommittedEntries) > 0 {
+		ctx := d.CreateApplyContext(ready.CommittedEntries)
+		ctx.applyEntries()
+
+		// check if ctx.apply is success
+		expectedIndex := d.peerStorage.AppliedIndex() + uint64(len(ready.CommittedEntries))
+		curIndex := ctx.applyState.GetAppliedIndex()
+		if expectedIndex != curIndex {
+			log.Fatalf("expectedAppliedIndex: %v, but appliedIndex: %v", expectedIndex, curIndex)
+		}
+		d.peerStorage.applyState = ctx.applyState
+		if ctx.stopped {
+			d.stopped = ctx.stopped
+			return
+		}
+	}
+	// Advance
+	d.RaftGroup.Advance(ready)
+}
+
+type ApplyContext struct {
+	d *peerMsgHandler
+	stopped bool
+	applyState *rspb.RaftApplyState
+	committedEntries []eraftpb.Entry
+	kvWB *engine_util.WriteBatch
+	callbacks []*message.Callback
+	responses []*raft_cmdpb.RaftCmdResponse
+}
+
+func (d *peerMsgHandler) CreateApplyContext(entries []eraftpb.Entry) *ApplyContext {
+	aCtx := &ApplyContext{
+		d: d,
+		stopped: false,
+		applyState: &rspb.RaftApplyState{
+			AppliedIndex: d.peerStorage.AppliedIndex(),
+			TruncatedState: &rspb.RaftTruncatedState{
+				Index: d.peerStorage.truncatedIndex(),
+				Term: d.peerStorage.truncatedTerm(),
+			},
+		},
+		committedEntries: entries,
+		kvWB: new(engine_util.WriteBatch),
+		callbacks: make([]*message.Callback, 0, len(entries)),
+		responses: make([]*raft_cmdpb.RaftCmdResponse, 0, len(entries)),
+	}
+	var cb *message.Callback
+	for _, entry := range entries {
+		cb, d.proposals = d.findCallback(&entry, d.proposals)
+		aCtx.callbacks = append(aCtx.callbacks, cb)
+	}
+	return aCtx
+}
+
+func (aCtx *ApplyContext) handleGet(cb *message.Callback, get *raft_cmdpb.GetRequest) (*raft_cmdpb.Response, error) {
+	var val []byte
+	var err error
+	resp := &raft_cmdpb.Response{}
+	d := aCtx.d
+
+	// do nothing for getRequest if the callback is nil
+	if cb == nil {
+		return resp, nil
+	}
+	if get == nil {
+		err = errors.Errorf("request.Get is nil")
+		return nil, err
+	}
+	if err = util.CheckKeyInRegion(get.GetKey(), d.Region()); err != nil {
+		return nil, err
+	}
+
+	if val, err = engine_util.GetCF(d.peerStorage.Engines.Kv, get.Cf, get.Key); err == badger.ErrKeyNotFound {
+		return nil, err
+	} else if err != nil {
+		log.Fatal(err)
+	} else {
+		resp.CmdType = raft_cmdpb.CmdType_Get
+		resp.Get = &raft_cmdpb.GetResponse{Value: val}
+	}
+	return resp, nil
+}
+
+func (aCtx *ApplyContext) handlePut(_ *message.Callback, put *raft_cmdpb.PutRequest) (*raft_cmdpb.Response, error) {
+	var err error
+	resp := &raft_cmdpb.Response{}
+	d := aCtx.d
+
+	if put == nil {
+		err = errors.Errorf("request.Put is nil")
+		return nil, err
+	}
+	// TODO: use d.isRangeValid(put.Key)?
+	if err = util.CheckKeyInRegion(put.GetKey(), d.Region()); err != nil {
+		return nil, err
+	}
+	aCtx.kvWB.SetCF(put.Cf, put.Key, put.Value)
+	resp.CmdType = raft_cmdpb.CmdType_Put
+	resp.Put = &raft_cmdpb.PutResponse{}
+	return resp, nil
+}
+
+func (aCtx *ApplyContext) handleDelete(_ *message.Callback, del *raft_cmdpb.DeleteRequest) (*raft_cmdpb.Response, error) {
+	var err error
+	resp := &raft_cmdpb.Response{}
+	d := aCtx.d
+
+	if del == nil {
+		err = errors.Errorf("request.Delete is nil")
+		return nil, err
+	}
+	if err = util.CheckKeyInRegion(del.GetKey(), d.Region()); err != nil {
+		return nil, err
+	}
+	aCtx.kvWB.DeleteCF(del.Cf, del.Key)
+	resp.CmdType = raft_cmdpb.CmdType_Delete
+	resp.Delete = &raft_cmdpb.DeleteResponse{}
+	return resp, nil
+}
+
+func (aCtx *ApplyContext) handleSnap(cb *message.Callback, snap *raft_cmdpb.SnapRequest) (*raft_cmdpb.Response, error) {
+	var err error
+	resp := &raft_cmdpb.Response{}
+
+	// do nothing for snapRequest if the callback is nil
+	if cb == nil {
+		return resp, nil
+	}
+	if snap == nil {
+		err = errors.Errorf("request.Delete is nil")
+		return nil, err
+	}
+
+	d := aCtx.d
+	cb.Txn = aCtx.d.peerStorage.Engines.Kv.NewTransaction(false)
+	// use the replicated region, instead of d.Region(), because the
+	// region is a pointer, it will change if the peer.Region splits.
+	snapRegion := &metapb.Region{
+		Id: d.Region().GetId(),
+		StartKey: d.Region().GetStartKey(),
+		EndKey: d.Region().GetEndKey(),
+		RegionEpoch: &metapb.RegionEpoch{
+			Version: d.Region().GetRegionEpoch().Version,
+			ConfVer: d.Region().GetRegionEpoch().ConfVer,
+		},
+		// it is unnecessary to attach peers info to the snapRegion
+	}
+	resp.CmdType = raft_cmdpb.CmdType_Snap
+	resp.Snap = &raft_cmdpb.SnapResponse{Region: snapRegion}
+	return resp, nil
+}
+
+func (aCtx *ApplyContext) handleNormalEntry(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
+	cmdResp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
+	var resp *raft_cmdpb.Response
+	var err error
+
+	if len(raftCmdRequest.Requests) > 1 {
+		log.Fatalf("no support for multi requests in one cmd")
+	}
+
+	aCtx.kvWB.SetSafePoint()
+	for _, req := range raftCmdRequest.Requests {
+		switch req.CmdType {
+		case raft_cmdpb.CmdType_Invalid:
+			err = errors.Errorf("here comes a request, type: CmdType_Invalid")
+		case raft_cmdpb.CmdType_Get:
+			resp, err = aCtx.handleGet(cb, req.GetGet())
+		case raft_cmdpb.CmdType_Put:
+			resp, err = aCtx.handlePut(cb, req.GetPut())
+		case raft_cmdpb.CmdType_Delete:
+			resp, err = aCtx.handleDelete(cb, req.GetDelete())
+		case raft_cmdpb.CmdType_Snap:
+			resp, err = aCtx.handleSnap(cb, req.GetSnap())
+		default:
+			err = errors.Errorf("here comes a request, unknown cmd_type: %v", req.CmdType)
+		}
+		if err != nil {
+			aCtx.kvWB.RollbackToSafePoint()
+			return ErrResp(err)
+		}
+	}
+	cmdResp.Responses = append(cmdResp.Responses, resp)
+	return cmdResp
+}
+
+func (aCtx *ApplyContext) handleAdminEntry(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
+	log.Fatalf("no implementation of handleAdminEntry()")
+	return nil
+}
+
+// applyEntry apply entry aCtx.committedEntries[offset]
+func (aCtx *ApplyContext) applyEntry(offset int) *raft_cmdpb.RaftCmdResponse {
+	cb := aCtx.callbacks[offset]
+	entry := &aCtx.committedEntries[offset]
+	raftCmdRequest := &raft_cmdpb.RaftCmdRequest{}
+	var resp *raft_cmdpb.RaftCmdResponse
+	var err error
+
+	expectedIndex := aCtx.applyState.GetAppliedIndex() + 1
+	if entry.GetIndex() != expectedIndex {
+		log.Fatalf("peer: %v, curApplyIndex(%v) != expectedIndex(%v)", aCtx.d.PeerId(), entry.GetIndex(), expectedIndex)
+	}
+
+	if entry.GetData() != nil {
+		if err = raftCmdRequest.Unmarshal(entry.GetData()); err != nil {
+			log.Fatalf("failed to unmarshal request from entry data, detail :%v", err)
+		} else 	if err = aCtx.d.preApplyEntry(raftCmdRequest); err != nil {
+			resp = ErrResp(err)
+		} else 	if raftCmdRequest.AdminRequest != nil {
+			resp = aCtx.handleAdminEntry(cb, raftCmdRequest)
+		} else {
+			resp = aCtx.handleNormalEntry(cb, raftCmdRequest)
+		}
+	}
+	aCtx.applyState.AppliedIndex = expectedIndex
+	return resp
+}
+
+// applyToDB write modifies to kvDB and reset kvWB
+func (aCtx *ApplyContext) applyToDB() {
+	aCtx.kvWB.SetMeta(meta.ApplyStateKey(aCtx.d.regionId), aCtx.applyState)
+	if err := aCtx.d.ctx.engine.WriteKV(aCtx.kvWB); err != nil {
+		log.Fatal(err)
+	}
+	aCtx.kvWB.Reset()
+}
+
+func (aCtx *ApplyContext) doneCallbacks() {
+	for i := 0; i < len(aCtx.callbacks); i++ {
+		aCtx.callbacks[i].Done(aCtx.responses[i])
+	}
+}
+
+func (aCtx *ApplyContext) applyEntries() {
+	length := len(aCtx.committedEntries)
+	if length == 0 {
+		return
+	}
+	for i := 0; i < length; i++ {
+		aCtx.responses = append(aCtx.responses, aCtx.applyEntry(i))
+		if aCtx.stopped {
+			break
+		}
+	}
+	aCtx.applyToDB()
+	aCtx.doneCallbacks()
+}
+
 func (d *peerMsgHandler) HandleMsg(msg message.Msg) {
 	switch msg.Type {
 	case message.MsgTypeRaftMessage:
