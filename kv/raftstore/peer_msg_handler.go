@@ -626,9 +626,8 @@ func (aCtx *ApplyContext) handleSnap(cb *message.Callback, snap *raft_cmdpb.Snap
 		err = errors.Errorf("request.Delete is nil")
 		return nil, err
 	}
-	// the snap entry should be applied separately
+	// the modifies should be applied to DB before getting txn
 	aCtx.applyToDB()
-	aCtx.applyToDBInAdvance = true
 
 	d := aCtx.d
 	cb.Txn = aCtx.d.peerStorage.Engines.Kv.NewTransaction(false)
