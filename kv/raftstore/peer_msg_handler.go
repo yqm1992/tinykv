@@ -497,6 +497,8 @@ type ApplyContext struct {
 	stopped bool
 	applyState *rspb.RaftApplyState
 	committedEntries []eraftpb.Entry
+	// cf + key -> value, cache the write result for following read operation
+	cacheMap map[string]string
 	kvWB *engine_util.WriteBatch
 	callbacks []*message.Callback
 	responses []*raft_cmdpb.RaftCmdResponse
@@ -514,6 +516,7 @@ func (d *peerMsgHandler) CreateApplyContext(entries []eraftpb.Entry) *ApplyConte
 			},
 		},
 		committedEntries: entries,
+		cacheMap: make(map[string]string),
 		kvWB: new(engine_util.WriteBatch),
 		callbacks: make([]*message.Callback, 0, len(entries)),
 		responses: make([]*raft_cmdpb.RaftCmdResponse, 0, len(entries)),
@@ -544,6 +547,13 @@ func (aCtx *ApplyContext) handleGet(cb *message.Callback, get *raft_cmdpb.GetReq
 		return nil, err
 	}
 
+	// search in cache
+	if value, ok := aCtx.cacheMap[get.GetCf()+string(get.GetKey())]; ok {
+		resp.CmdType = raft_cmdpb.CmdType_Get
+		resp.Get = &raft_cmdpb.GetResponse{Value: []byte(value)}
+		log.Warnf("read operation shot the cache !")
+		return resp, nil
+	}
 	if val, err = engine_util.GetCF(d.peerStorage.Engines.Kv, get.Cf, get.Key); err == badger.ErrKeyNotFound {
 		return nil, err
 	} else if err != nil {
@@ -551,6 +561,8 @@ func (aCtx *ApplyContext) handleGet(cb *message.Callback, get *raft_cmdpb.GetReq
 	} else {
 		resp.CmdType = raft_cmdpb.CmdType_Get
 		resp.Get = &raft_cmdpb.GetResponse{Value: val}
+		// add to cache
+		aCtx.cacheMap[get.GetCf()+string(get.GetKey())] = string(val)
 	}
 	return resp, nil
 }
@@ -569,6 +581,8 @@ func (aCtx *ApplyContext) handlePut(_ *message.Callback, put *raft_cmdpb.PutRequ
 		return nil, err
 	}
 	aCtx.kvWB.SetCF(put.Cf, put.Key, put.Value)
+	// save to cache
+	aCtx.cacheMap[put.GetCf()+string(put.Key)] = string(put.GetValue())
 	resp.CmdType = raft_cmdpb.CmdType_Put
 	resp.Put = &raft_cmdpb.PutResponse{}
 	return resp, nil
@@ -586,6 +600,9 @@ func (aCtx *ApplyContext) handleDelete(_ *message.Callback, del *raft_cmdpb.Dele
 	if err = util.CheckKeyInRegion(del.GetKey(), d.Region()); err != nil {
 		return nil, err
 	}
+	// delete from cache
+	delete(aCtx.cacheMap, del.GetCf()+string(del.GetKey()))
+
 	aCtx.kvWB.DeleteCF(del.Cf, del.Key)
 	resp.CmdType = raft_cmdpb.CmdType_Delete
 	resp.Delete = &raft_cmdpb.DeleteResponse{}
