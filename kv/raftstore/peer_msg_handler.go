@@ -495,6 +495,9 @@ func (d *peerMsgHandler) HandleRaftReadyNew() {
 type ApplyContext struct {
 	d *peerMsgHandler
 	stopped bool
+	// applyToDBInAdvance is true indicates that the modifies should be applied to DB directly
+	applyToDBInAdvance bool
+	appliedToDBIndex uint64
 	applyState *rspb.RaftApplyState
 	committedEntries []eraftpb.Entry
 	// cf + key -> value, cache the write result for following read operation
@@ -508,6 +511,8 @@ func (d *peerMsgHandler) CreateApplyContext(entries []eraftpb.Entry) *ApplyConte
 	aCtx := &ApplyContext{
 		d: d,
 		stopped: false,
+		applyToDBInAdvance: false,
+		appliedToDBIndex: d.peerStorage.AppliedIndex(),
 		applyState: &rspb.RaftApplyState{
 			AppliedIndex: d.peerStorage.AppliedIndex(),
 			TruncatedState: &rspb.RaftTruncatedState{
@@ -621,6 +626,9 @@ func (aCtx *ApplyContext) handleSnap(cb *message.Callback, snap *raft_cmdpb.Snap
 		err = errors.Errorf("request.Delete is nil")
 		return nil, err
 	}
+	// the snap entry should be applied separately
+	aCtx.applyToDB()
+	aCtx.applyToDBInAdvance = true
 
 	d := aCtx.d
 	cb.Txn = aCtx.d.peerStorage.Engines.Kv.NewTransaction(false)
@@ -662,6 +670,7 @@ func (aCtx *ApplyContext) handleNormalEntry(cb *message.Callback, raftCmdRequest
 		case raft_cmdpb.CmdType_Delete:
 			resp, err = aCtx.handleDelete(cb, req.GetDelete())
 		case raft_cmdpb.CmdType_Snap:
+			// the modifies may be written to DB
 			resp, err = aCtx.handleSnap(cb, req.GetSnap())
 		default:
 			err = errors.Errorf("here comes a request, unknown cmd_type: %v", req.CmdType)
@@ -715,6 +724,8 @@ func (aCtx *ApplyContext) applyToDB() {
 		log.Fatal(err)
 	}
 	aCtx.kvWB.Reset()
+	aCtx.applyToDBInAdvance = false
+	aCtx.appliedToDBIndex = aCtx.applyState.GetAppliedIndex()
 }
 
 func (aCtx *ApplyContext) doneCallbacks() {
@@ -730,6 +741,9 @@ func (aCtx *ApplyContext) applyEntries() {
 	}
 	for i := 0; i < length; i++ {
 		aCtx.responses = append(aCtx.responses, aCtx.applyEntry(i))
+		if aCtx.applyToDBInAdvance {
+			aCtx.applyToDB()
+		}
 		if aCtx.stopped {
 			break
 		}
@@ -823,7 +837,6 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 		cb.Done(ErrResp(err))
 		return
 	}
-
 	// TODO need to check if key is in range [startKey, endKey)
 
 	data, err2 := msg.Marshal()
