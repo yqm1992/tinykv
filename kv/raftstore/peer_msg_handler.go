@@ -406,6 +406,14 @@ func (d *peerMsgHandler) applyEntries(entries []eraftpb.Entry) {
 		if expectedIndex != curIndex {
 			log.Fatalf("expectedAppliedIndex: %v, but appliedIndex: %v", expectedIndex, curIndex)
 		}
+		if aCtx.applyState.TruncatedState.GetIndex() != d.peerStorage.truncatedIndex() {
+			compactIndex := aCtx.applyState.TruncatedState.GetIndex()
+			compactTerm := aCtx.applyState.TruncatedState.GetTerm()
+			// compact the log of memory
+			d.RaftGroup.Raft.RaftLog.Compact(compactIndex, compactTerm)
+			// compact the log of storage
+			d.ScheduleCompactLog(compactIndex)
+		}
 		d.peerStorage.applyState = aCtx.applyState
 	}
 }
@@ -684,8 +692,48 @@ func (aCtx *ApplyContext) handleNormalEntry(cb *message.Callback, raftCmdRequest
 }
 
 func (aCtx *ApplyContext) handleAdminEntry(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
-	log.Fatalf("no implementation of handleAdminEntry()")
-	return nil
+	adminReq := raftCmdRequest.AdminRequest
+	var resp *raft_cmdpb.RaftCmdResponse
+	switch adminReq.CmdType {
+	case raft_cmdpb.AdminCmdType_InvalidAdmin:
+		log.Errorf("here comes a %v request", adminReq.CmdType)
+	case raft_cmdpb.AdminCmdType_ChangePeer:
+		log.Fatalf("unsupported admin request, type = %v", adminReq.CmdType)
+	case raft_cmdpb.AdminCmdType_CompactLog:
+		resp = aCtx.handleCompactLog(cb, raftCmdRequest)
+	case raft_cmdpb.AdminCmdType_TransferLeader:
+		log.Fatalf("unsupported admin request, type = %v", adminReq.CmdType)
+	case raft_cmdpb.AdminCmdType_Split:
+		log.Fatalf("unsupported admin request, type = %v", adminReq.CmdType)
+	default:
+		log.Errorf("unknown admin request, type = %v", adminReq.CmdType)
+	}
+	//aCtx.applyToDBInAdvance = true
+	return resp
+}
+
+func (aCtx *ApplyContext) handleCompactLog(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
+	compactLog := raftCmdRequest.AdminRequest.CompactLog
+	d := aCtx.d
+	resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
+	var err error
+
+	if compactLog == nil {
+		err = fmt.Errorf("the CompactLog request is nil")
+		log.Error(err)
+		resp = ErrResp(err)
+	} else 	if compactLog.CompactIndex > aCtx.applyState.GetAppliedIndex() {
+		err = fmt.Errorf("compactIndex(%v) > appliedIndex(%v)", compactLog.CompactIndex, aCtx.applyState.GetAppliedIndex())
+		resp = ErrResp(err)
+		log.Error(err)
+	} else 	if compactLog.CompactIndex <= aCtx.applyState.TruncatedState.GetIndex() {
+		log.Warnf("id = %v, compactIndex(%v) <= truncatedIndex(%v)", d.regionId, compactLog.CompactIndex, aCtx.applyState.TruncatedState.GetIndex())
+	} else {
+		// peerMsgHandler will compact the log after the entry is applied to DB
+		aCtx.applyState.TruncatedState.Index = compactLog.CompactIndex
+		aCtx.applyState.TruncatedState.Term = compactLog.CompactTerm
+	}
+	return resp
 }
 
 // applyEntry apply entry aCtx.committedEntries[offset]
