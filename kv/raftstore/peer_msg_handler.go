@@ -406,6 +406,7 @@ func (d *peerMsgHandler) applyEntries(entries []eraftpb.Entry) {
 		if expectedIndex != curIndex {
 			log.Fatalf("expectedAppliedIndex: %v, but appliedIndex: %v", expectedIndex, curIndex)
 		}
+		// compact log
 		if aCtx.applyState.TruncatedState.GetIndex() != d.peerStorage.truncatedIndex() {
 			compactIndex := aCtx.applyState.TruncatedState.GetIndex()
 			compactTerm := aCtx.applyState.TruncatedState.GetTerm()
@@ -414,6 +415,11 @@ func (d *peerMsgHandler) applyEntries(entries []eraftpb.Entry) {
 			// compact the log of storage
 			d.ScheduleCompactLog(compactIndex)
 		}
+		// transfer leader
+		if aCtx.transferee != 0 {
+			d.RaftGroup.TransferLeader(aCtx.transferee)
+		}
+		// update applyState
 		d.peerStorage.applyState = aCtx.applyState
 	}
 }
@@ -513,6 +519,7 @@ type ApplyContext struct {
 	kvWB *engine_util.WriteBatch
 	callbacks []*message.Callback
 	responses []*raft_cmdpb.RaftCmdResponse
+	transferee uint64
 }
 
 func (d *peerMsgHandler) CreateApplyContext(entries []eraftpb.Entry) *ApplyContext {
@@ -702,7 +709,7 @@ func (aCtx *ApplyContext) handleAdminEntry(cb *message.Callback, raftCmdRequest 
 	case raft_cmdpb.AdminCmdType_CompactLog:
 		resp = aCtx.handleCompactLog(cb, raftCmdRequest)
 	case raft_cmdpb.AdminCmdType_TransferLeader:
-		log.Fatalf("unsupported admin request, type = %v", adminReq.CmdType)
+		resp = aCtx.handleTransferLeader(cb, raftCmdRequest)
 	case raft_cmdpb.AdminCmdType_Split:
 		log.Fatalf("unsupported admin request, type = %v", adminReq.CmdType)
 	default:
@@ -734,6 +741,14 @@ func (aCtx *ApplyContext) handleCompactLog(cb *message.Callback, raftCmdRequest 
 		aCtx.applyState.TruncatedState.Term = compactLog.CompactTerm
 	}
 	return resp
+}
+
+func (aCtx *ApplyContext) handleTransferLeader(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
+	aCtx.transferee = raftCmdRequest.AdminRequest.TransferLeader.Peer.Id
+	return &raft_cmdpb.RaftCmdResponse{
+		Header: &raft_cmdpb.RaftResponseHeader{},
+		AdminResponse: &raft_cmdpb.AdminResponse{CmdType: raft_cmdpb.AdminCmdType_TransferLeader},
+	}
 }
 
 // applyEntry apply entry aCtx.committedEntries[offset]
