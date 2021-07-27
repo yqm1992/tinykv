@@ -705,7 +705,7 @@ func (aCtx *ApplyContext) handleAdminEntry(cb *message.Callback, raftCmdRequest 
 	case raft_cmdpb.AdminCmdType_InvalidAdmin:
 		log.Errorf("here comes a %v request", adminReq.CmdType)
 	case raft_cmdpb.AdminCmdType_ChangePeer:
-		log.Fatalf("unsupported admin request, type = %v", adminReq.CmdType)
+		resp = aCtx.handleChangePeer(cb, raftCmdRequest)
 	case raft_cmdpb.AdminCmdType_CompactLog:
 		resp = aCtx.handleCompactLog(cb, raftCmdRequest)
 	case raft_cmdpb.AdminCmdType_TransferLeader:
@@ -717,6 +717,62 @@ func (aCtx *ApplyContext) handleAdminEntry(cb *message.Callback, raftCmdRequest 
 	}
 	//aCtx.applyToDBInAdvance = true
 	return resp
+}
+
+func (aCtx *ApplyContext) handleChangePeer(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
+	adminReq := raftCmdRequest.AdminRequest
+	resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
+	d := aCtx.d
+	raftPeerNum := len(d.RaftGroup.Raft.Prs)
+	regionPeerNum := len(d.Region().Peers)
+	if raftPeerNum != regionPeerNum {
+		log.Fatalf("id = %v: num(raft.peers) = %v, num(region.peers) = %v, mismatch", d.PeerId(), raftPeerNum, regionPeerNum)
+	}
+	cc := eraftpb.ConfChange{ChangeType: adminReq.ChangePeer.ChangeType, NodeId: adminReq.ChangePeer.Peer.Id}
+	confState := d.RaftGroup.ApplyConfChange(cc)
+	resp.AdminResponse = &raft_cmdpb.AdminResponse{CmdType: raft_cmdpb.AdminCmdType_ChangePeer}
+	// check if ChangePeer succeeds
+	if raftPeerNum == len(confState.Nodes) {
+		return resp
+	}
+	// region has changed, the cached snapshot should be dropped
+	d.RaftGroup.Raft.RaftLog.ResetCacheSnapshot()
+	curRegion := d.Region()
+	if _, ok := d.RaftGroup.Raft.Prs[adminReq.ChangePeer.Peer.Id]; ok == true {
+		//Add Node to peers
+		curRegion.Peers = append(curRegion.Peers, adminReq.ChangePeer.Peer)
+	} else {
+		// Remove Node from peers
+		targetIndex := len(curRegion.Peers)
+		for index, peer := range curRegion.Peers {
+			if peer.GetId() == adminReq.ChangePeer.Peer.Id {
+				targetIndex = index
+				break
+			}
+		}
+		curRegion.Peers = append(curRegion.Peers[:targetIndex], curRegion.Peers[targetIndex+1:]... )
+		// delete peer from the cache
+		delete(d.peerCache, adminReq.ChangePeer.Peer.Id)
+		if adminReq.ChangePeer.Peer.Id == d.PeerId() {
+			log.Infof("[storeId = %v, peerId = %v], prepares to destroy self", d.storeID(), d.PeerId())
+			d.destroyPeer()
+			aCtx.stopped = d.stopped
+			return resp
+		}
+	}
+	log.Infof("[storeId = %v, peerId = %v], %v [storeId = %v, peerId = %v], num(region.peers) = %v --> %v", d.storeID(), d.PeerId(), adminReq.ChangePeer.ChangeType, adminReq.ChangePeer.Peer.StoreId, adminReq.ChangePeer.Peer.Id, regionPeerNum, len(d.Region().Peers))
+	curRegion.RegionEpoch.ConfVer++
+	aCtx.updateRegion(curRegion)
+	return resp
+}
+
+func (aCtx *ApplyContext) updateRegion(curRegion *metapb.Region) {
+	meta.WriteRegionState(aCtx.kvWB, curRegion, rspb.PeerState_Normal)
+	storeMeta := aCtx.d.ctx.storeMeta
+	storeMeta.Lock()
+	defer storeMeta.Unlock()
+	storeMeta.setRegion(curRegion, aCtx.d.peer)
+	storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: curRegion})
 }
 
 func (aCtx *ApplyContext) handleCompactLog(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
