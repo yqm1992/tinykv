@@ -863,7 +863,7 @@ func (aCtx *ApplyContext) applyEntries() {
 			aCtx.applyToDB()
 		}
 		if aCtx.stopped {
-			break
+			return
 		}
 	}
 	aCtx.applyToDB()
