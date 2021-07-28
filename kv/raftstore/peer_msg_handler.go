@@ -601,6 +601,7 @@ func (aCtx *ApplyContext) handlePut(_ *message.Callback, put *raft_cmdpb.PutRequ
 		return nil, err
 	}
 	aCtx.kvWB.SetCF(put.Cf, put.Key, put.Value)
+	aCtx.d.SizeDiffHint += uint64(len(put.Key) + len(put.Value))
 	// save to cache
 	aCtx.cacheMap[put.GetCf()+string(put.Key)] = string(put.GetValue())
 	resp.CmdType = raft_cmdpb.CmdType_Put
