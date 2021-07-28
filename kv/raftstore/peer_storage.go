@@ -319,7 +319,11 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 	return nil
 }
 
-// Apply the peer with given snapshot
+// ApplySnapshotNew apply the given snapshot
+// 1. write kvDB (clear meta data, then write new applyState and regionState)
+// 2. apply snapshot
+// 3. write raftDB (clear meta data, then write new raftState)
+// 4. clear extra data
 func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_util.WriteBatch, raftWB *engine_util.WriteBatch) (*ApplySnapResult, error) {
 	log.Infof("%v begin to apply snapshot", ps.Tag)
 	snapData := new(rspb.RaftSnapshotData)
@@ -332,25 +336,8 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	// Your Code Here (2C).
 	snapshotIndex := snapshot.Metadata.Index
 	snapshotTerm := snapshot.Metadata.Term
-	notifier := make(chan bool, 1)
-	applyTask := runner.RegionTaskApply{
-		RegionId: snapData.Region.Id,
-		Notifier: notifier,
-		SnapMeta: &eraftpb.SnapshotMetadata{ConfState: snapshot.Metadata.ConfState, Index: snapshotIndex, Term: snapshotTerm},
-		StartKey: snapData.Region.StartKey,
-		EndKey: snapData.Region.EndKey,
-	}
-	// send task to regionWorker which really does applySnapshot
-	ps.regionSched <- &applyTask
-	if ok :=  <-notifier; ok != true {
-		log.Fatalf("failed to apply snapshot")
-	}
+
 	ps.clearMeta(kvWB, raftWB)
-	// an uninitialized peer has no data (start and end is nil), it should skip over clearExtraData()
-	if ps.isInitialized() {
-		ps.clearExtraData(snapData.Region)
-	}
-	// TODO how to ensure modifying of kvDB and raftDB is atomic
 	// set applyState
 	ps.applyState.AppliedIndex = snapshotIndex
 	ps.applyState.TruncatedState.Index = snapshotIndex
@@ -366,13 +353,34 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	ps.raftState.LastTerm = snapshotTerm
 	ps.raftState.HardState.Commit =  snapshotIndex
 	raftWB.SetMeta(meta.RaftStateKey(ps.region.GetId()), ps.raftState)
-	// write applyState, regionState to kvDB, raftState to raftDB
+	// write kvDB first in case of restart happen between two write
 	if err := ps.Engines.WriteKV(kvWB); err != nil {
+		log.Fatal(err)
 		return nil, err
 	}
+	// send task to regionWorker to apply snapshot
+	notifier := make(chan bool, 1)
+	applyTask := runner.RegionTaskApply{
+		RegionId: snapData.Region.Id,
+		Notifier: notifier,
+		SnapMeta: &eraftpb.SnapshotMetadata{ConfState: snapshot.Metadata.ConfState, Index: snapshotIndex, Term: snapshotTerm},
+		StartKey: snapData.Region.StartKey,
+		EndKey: snapData.Region.EndKey,
+	}
+	ps.regionSched <- &applyTask
+	if ok :=  <-notifier; ok != true {
+		log.Fatalf("failed to apply snapshot")
+	}
+	// finally, write raftDB
 	if err := ps.Engines.WriteRaft(raftWB); err != nil {
+		log.Fatal(err)
 		return nil, err
 	}
+	// we should skip extra data clearing for an uninitialized peer, because it has no data (start and end is nil, clearExtraData() will clear data of this region)
+	if ps.isInitialized() {
+		ps.clearExtraData(snapData.Region)
+	}
+
 	return &ApplySnapResult{prevRegion, ps.Region()}, nil
 }
 
