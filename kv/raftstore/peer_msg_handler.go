@@ -711,7 +711,7 @@ func (aCtx *ApplyContext) handleAdminEntry(cb *message.Callback, raftCmdRequest 
 	case raft_cmdpb.AdminCmdType_TransferLeader:
 		resp = aCtx.handleTransferLeader(cb, raftCmdRequest)
 	case raft_cmdpb.AdminCmdType_Split:
-		log.Fatalf("unsupported admin request, type = %v", adminReq.CmdType)
+		resp = aCtx.handleSplit(cb, raftCmdRequest)
 	default:
 		log.Errorf("unknown admin request, type = %v", adminReq.CmdType)
 	}
@@ -805,6 +805,55 @@ func (aCtx *ApplyContext) handleTransferLeader(cb *message.Callback, raftCmdRequ
 		Header: &raft_cmdpb.RaftResponseHeader{},
 		AdminResponse: &raft_cmdpb.AdminResponse{CmdType: raft_cmdpb.AdminCmdType_TransferLeader},
 	}
+}
+
+func (aCtx *ApplyContext) handleSplit(cb *message.Callback, raftCmdRequest *raft_cmdpb.RaftCmdRequest) *raft_cmdpb.RaftCmdResponse {
+	splitReq := raftCmdRequest.AdminRequest.Split
+	resp := &raft_cmdpb.RaftCmdResponse{Header: &raft_cmdpb.RaftResponseHeader{}}
+	d := aCtx.d
+
+	if splitReq.SplitKey == nil {
+		log.Errorf("missing splitKey")
+		return resp
+	}
+	if err := util.CheckKeyInRegion(splitReq.SplitKey, d.Region()); err != nil {
+		log.Error(err)
+		return resp
+	}
+	if bytes.Compare(splitReq.SplitKey, d.Region().StartKey) == 0 {
+		log.Errorf("splitKey: %v can not be equal to region.StartKey: %v", splitReq.SplitKey, d.Region().StartKey)
+		return resp
+	}
+	if len(splitReq.NewPeerIds) != len(d.Region().GetPeers()) {
+		log.Errorf("newRegion(len = %v), curRegion(len = %v), does not match", len(splitReq.NewPeerIds), len(d.Region().GetPeers()))
+		return resp
+	}
+	curRegion := d.Region()
+	newRegion := &metapb.Region{
+		Id: splitReq.GetNewRegionId(),
+		StartKey: splitReq.SplitKey,
+		EndKey: d.Region().GetEndKey(),
+		RegionEpoch: &metapb.RegionEpoch{
+			Version: InitEpochVer,
+			ConfVer: InitEpochConfVer,
+		},
+	}
+	for idx, peerInfo := range curRegion.Peers {
+		// TODO: if region.peers of different nodes are the same order ?
+		newRegion.Peers = append(newRegion.Peers, &metapb.Peer{Id: splitReq.NewPeerIds[idx], StoreId: peerInfo.StoreId})
+	}
+	curRegion.RegionEpoch.Version++
+	curRegion.EndKey = splitReq.SplitKey
+	newPeer, err := createPeer(d.storeID(), d.ctx.cfg, d.ctx.regionTaskSender, d.ctx.engine, newRegion)
+	if err != nil {
+		log.Fatal(err)
+	}
+	d.RaftGroup.Raft.RaftLog.ResetCacheSnapshot()
+	aCtx.updateRegion(curRegion)
+	newPeer.updateRegion(d.ctx, newRegion)
+	d.ctx.router.register(newPeer)
+	_ = d.ctx.router.send(newRegion.GetId(), message.Msg{Type: message.MsgTypeStart})
+	return resp
 }
 
 // applyEntry apply entry aCtx.committedEntries[offset]
