@@ -424,7 +424,7 @@ func (d *peerMsgHandler) applyEntries(entries []eraftpb.Entry) {
 	}
 }
 
-func (d *peerMsgHandler) HandleRaftReady() {
+func (d *peerMsgHandler) HandleRaftReadyOld() {
 	if d.stopped {
 		return
 	}
@@ -468,7 +468,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 	d.RaftGroup.Advance(ready)
 }
 
-func (d *peerMsgHandler) HandleRaftReadyNew() {
+func (d *peerMsgHandler) HandleRaftReady() {
 	if d.stopped {
 		return
 	}
