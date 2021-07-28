@@ -319,7 +319,7 @@ func (ps *PeerStorage) Append(entries []eraftpb.Entry, raftWB *engine_util.Write
 	return nil
 }
 
-// ApplySnapshotNew apply the given snapshot
+// ApplySnapshot apply the given snapshot
 // 1. write kvDB (clear meta data, then write new applyState and regionState)
 // 2. apply snapshot
 // 3. write raftDB (clear meta data, then write new raftState)
