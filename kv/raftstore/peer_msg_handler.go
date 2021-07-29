@@ -739,6 +739,7 @@ func (aCtx *ApplyContext) handleChangePeer(cb *message.Callback, raftCmdRequest 
 	// region has changed, the cached snapshot should be dropped
 	d.RaftGroup.Raft.RaftLog.ResetCacheSnapshot()
 	curRegion := d.Region()
+	removeSelf := false
 	if _, ok := d.RaftGroup.Raft.Prs[adminReq.ChangePeer.Peer.Id]; ok == true {
 		//Add Node to peers
 		curRegion.Peers = append(curRegion.Peers, adminReq.ChangePeer.Peer)
@@ -755,15 +756,18 @@ func (aCtx *ApplyContext) handleChangePeer(cb *message.Callback, raftCmdRequest 
 		// delete peer from the cache
 		delete(d.peerCache, adminReq.ChangePeer.Peer.Id)
 		if adminReq.ChangePeer.Peer.Id == d.PeerId() {
-			log.Infof("[storeId = %v, peerId = %v], prepares to destroy self", d.storeID(), d.PeerId())
-			d.destroyPeer()
-			aCtx.stopped = d.stopped
-			return resp
+			removeSelf = true
 		}
 	}
-	log.Infof("[storeId = %v, peerId = %v], %v [storeId = %v, peerId = %v], num(region.peers) = %v --> %v", d.storeID(), d.PeerId(), adminReq.ChangePeer.ChangeType, adminReq.ChangePeer.Peer.StoreId, adminReq.ChangePeer.Peer.Id, regionPeerNum, len(d.Region().Peers))
 	curRegion.RegionEpoch.ConfVer++
-	aCtx.updateRegion(curRegion)
+	if removeSelf {
+		log.Infof("[storeId = %v, peerId = %v], prepares to destroy self", d.storeID(), d.PeerId())
+		d.destroyPeer()
+		aCtx.stopped = d.stopped
+	} else {
+		log.Infof("[storeId = %v, peerId = %v], %v [storeId = %v, peerId = %v], num(region.peers) = %v --> %v", d.storeID(), d.PeerId(), adminReq.ChangePeer.ChangeType, adminReq.ChangePeer.Peer.StoreId, adminReq.ChangePeer.Peer.Id, regionPeerNum, len(d.Region().Peers))
+		aCtx.updateRegion(curRegion)
+	}
 	return resp
 }
 
