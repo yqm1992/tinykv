@@ -482,6 +482,7 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		log.Fatalf("Failed to save ready state")
 		return
 	}
+	needRecheckMessage := false
 	if applySnapResult != nil && !util.RegionEqual(applySnapResult.PrevRegion, applySnapResult.Region) {
 		d.RaftGroup.Raft.Prs = make(map[uint64]*raft.Progress)
 		for _, peer := range applySnapResult.Region.Peers {
@@ -489,13 +490,27 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		}
 		d.ctx.storeMeta.setRegion(applySnapResult.Region, d.peer)
 		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: applySnapResult.Region})
+		// we should recheck the messages if the conf version has changed
+		if applySnapResult.PrevRegion.GetRegionEpoch().GetConfVer() != applySnapResult.Region.GetRegionEpoch().GetConfVer() {
+			needRecheckMessage = true
+		}
 		prevNum := len(applySnapResult.PrevRegion.Peers)
 		curNum := len(applySnapResult.Region.Peers)
 		log.Warnf("[storeId = %v, peerId = %v], remake peers by snapshot num(Prs) %v --> %v", d.storeID(), d.PeerId(), prevNum, curNum)
 	}
 
 	// send messages
-	d.Send(d.ctx.trans, ready.Messages)
+	if needRecheckMessage {
+		var messages []eraftpb.Message
+		for _, msg := range ready.Messages {
+			if _, ok := d.RaftGroup.Raft.Prs[msg.GetTo()]; ok {
+				messages = append(messages, msg)
+			}
+		}
+		d.Send(d.ctx.trans, messages)
+	} else {
+		d.Send(d.ctx.trans, ready.Messages)
+	}
 
 	// apply committed entries
 	d.applyEntries(ready.CommittedEntries)
