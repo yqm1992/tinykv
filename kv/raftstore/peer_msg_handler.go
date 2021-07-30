@@ -483,15 +483,15 @@ func (d *peerMsgHandler) HandleRaftReady() {
 		return
 	}
 	if applySnapResult != nil && !util.RegionEqual(applySnapResult.PrevRegion, applySnapResult.Region) {
-		prevNum := len(applySnapResult.PrevRegion.Peers)
 		d.RaftGroup.Raft.Prs = make(map[uint64]*raft.Progress)
 		for _, peer := range applySnapResult.Region.Peers {
 			d.RaftGroup.Raft.Prs[peer.Id] = &raft.Progress{}
 		}
-		curNum := len(applySnapResult.Region.Peers)
-		log.Warnf("[storeId = %v, peerId = %v], remake peers by snapshot num(Prs) %v --> %v", d.storeID(), d.PeerId(), prevNum, curNum)
 		d.ctx.storeMeta.setRegion(applySnapResult.Region, d.peer)
 		d.ctx.storeMeta.regionRanges.ReplaceOrInsert(&regionItem{region: applySnapResult.Region})
+		prevNum := len(applySnapResult.PrevRegion.Peers)
+		curNum := len(applySnapResult.Region.Peers)
+		log.Warnf("[storeId = %v, peerId = %v], remake peers by snapshot num(Prs) %v --> %v", d.storeID(), d.PeerId(), prevNum, curNum)
 	}
 
 	// send messages
