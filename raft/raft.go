@@ -798,7 +798,8 @@ func (r *Raft) Step(m pb.Message) error {
 	//}
 	// Check if self is in the raft group
 	if _, ok := r.Prs[r.id]; !ok {
-		if m.MsgType != pb.MessageType_MsgHeartbeat && m.MsgType != pb.MessageType_MsgAppend &&  m.MsgType != pb.MessageType_MsgSnapshot {
+		// response to leader and candidate is allowed if self is not in the raft group
+		if m.MsgType != pb.MessageType_MsgHeartbeat && m.MsgType != pb.MessageType_MsgAppend &&  m.MsgType != pb.MessageType_MsgSnapshot && m.MsgType != pb.MessageType_MsgRequestVote {
 			log.Warnf("id = %v is not in the raft group %v, can not handle the message [type: %v]", r.id, nodes(r), m.MsgType)
 			return nil
 		}
