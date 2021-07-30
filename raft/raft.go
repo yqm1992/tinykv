@@ -210,7 +210,7 @@ func newRaft(c *Config) *Raft {
 
 // sendAppend sends an append RPC with new entries (if any) and the
 // current commit index to the given peer. Returns true if a message was sent.
-func (r *Raft) sendAppend(to uint64) bool {
+func (r *Raft) sendAppendOld(to uint64) bool {
 	// Your Code Here (2A).
 	if r.State != StateLeader || r.id == to {
 		return false
@@ -296,6 +296,130 @@ func (r *Raft) sendAppend(to uint64) bool {
 	}
 	r.msgs = append(r.msgs, msg)
 	return true
+}
+
+func (r *Raft) sendAppend(to uint64) bool {
+	// Your Code Here (2A).
+	if r.State != StateLeader || r.id == to {
+		return false
+	}
+	peer := r.Prs[to]
+
+	if lastSendIndex, ok := r.sendAppendSnapshot(to); ok {
+		peer.Next = lastSendIndex + 1
+		return true
+	}
+	if lastSendIndex, ok := r.sendAppendNormal(to); ok {
+		peer.Next = lastSendIndex + 1
+		return true
+	}
+	return false
+}
+
+func (r *Raft) sendAppendSnapshot(to uint64) (uint64, bool) {
+	// Your Code Here (2A).
+	if r.State != StateLeader || r.id == to {
+		return 0, false
+	}
+	lastSendIndex := uint64(0)
+	peer := r.Prs[to]
+
+	if peer.Next > r.RaftLog.truncatedIndex {
+		return lastSendIndex, false
+	}
+	msg := pb.Message{
+		From: r.id,
+		To: to,
+		Term: r.Term,
+		MsgType: pb.MessageType_MsgSnapshot,
+	}
+	// if there is a cached snapshot
+	if r.RaftLog.localSnapshot != nil {
+		cacheSnapshot := r.RaftLog.localSnapshot
+		snapData := new(rspb.RaftSnapshotData)
+		if err := snapData.Unmarshal(cacheSnapshot.Data); err != nil {
+			log.Fatal(err)
+		}
+		contains := false
+		for _, peer := range snapData.Region.Peers {
+			if peer.Id == to {
+				contains = true
+				break
+			}
+		}
+		if cacheSnapshot.Metadata.Index >= peer.Next && contains {
+			msg.Snapshot = r.RaftLog.localSnapshot
+			r.msgs = append(r.msgs, msg)
+			lastSendIndex = msg.Snapshot.Metadata.GetIndex()
+			return lastSendIndex, true
+		}
+	}
+	// there is no cached snapshot or cached snapshot is too old
+	snapshot, err := r.RaftLog.storage.Snapshot()
+	if err == ErrSnapshotTemporarilyUnavailable {
+		return lastSendIndex, false
+	}
+	if err != nil {
+		log.Error(err)
+		return lastSendIndex, false
+	}
+	r.RaftLog.localSnapshot = &snapshot
+	msg.Snapshot = r.RaftLog.localSnapshot
+	r.msgs = append(r.msgs, msg)
+	lastSendIndex = snapshot.Metadata.GetIndex()
+	return lastSendIndex, true
+}
+
+func (r *Raft) sendAppendNormal(to uint64) (uint64, bool) {
+	if r.State != StateLeader || r.id == to {
+		return 0, false
+	}
+	lastSendIndex := uint64(0)
+	lastIndex := r.RaftLog.LastIndex()
+	peer := r.Prs[to]
+
+	if peer.Next <= r.RaftLog.truncatedIndex {
+		return lastSendIndex, false
+	}
+	// Send Append with no entry to peer
+	if peer.Next > lastIndex {
+		logTerm, _ := r.RaftLog.Term(lastIndex)
+		msg := pb.Message{
+			From: r.id,
+			To: to,
+			Term: r.Term,
+			MsgType: pb.MessageType_MsgAppend,
+			Index: lastIndex,
+			LogTerm: logTerm,
+			Commit: r.RaftLog.committed,
+		}
+		r.msgs = append(r.msgs, msg)
+		lastSendIndex = lastIndex
+		return lastSendIndex, true
+	}
+
+	sendStartOffset := peer.Next - r.RaftLog.entries[0].Index
+	sendLen := lastIndex - peer.Next + 1 // should set limit for max length of send entries
+	sendEntries := []*pb.Entry{}
+	for i := uint64(0); i < sendLen; i++ {
+		sendEntries = append(sendEntries, &r.RaftLog.entries[sendStartOffset + i])
+	}
+	logIndex := peer.Next - 1
+	logTerm, _ := r.RaftLog.Term(logIndex)
+
+	msg := pb.Message{
+		From: r.id,
+		To: to,
+		Term: r.Term,
+		MsgType: pb.MessageType_MsgAppend,
+		Index: logIndex,
+		LogTerm: logTerm,
+		Entries: sendEntries,
+		Commit: r.RaftLog.committed,
+	}
+	r.msgs = append(r.msgs, msg)
+	lastSendIndex = sendEntries[sendLen-1].GetIndex()
+	return lastSendIndex, true
 }
 
 // sendNoopEntry sends an append RPC with null entry
