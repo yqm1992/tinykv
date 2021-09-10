@@ -459,6 +459,7 @@ func (server *Server) KvBatchRollback(_ context.Context, req *kvrpcpb.BatchRollb
 			} else if write != nil {
 				if write.Kind == mvcc.WriteKindRollback {
 					log.Warnf("transaction(startTS: %v) is already rollback !", txn.StartTS)
+					continue
 				} else {
 					log.Warnf("can not abort transaction(startTS: %v), it is already committed !", txn.StartTS)
 					resp.Error = &kvrpcpb.KeyError{Abort: "the transaction is already committed !"}
