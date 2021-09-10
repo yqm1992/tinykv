@@ -202,7 +202,6 @@ func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest
 	type KeyErrorWrap struct{
 		Error       *kvrpcpb.KeyError
 	}
-	keyErrorWrap := &KeyErrorWrap{}
 	for _, mut := range req.Mutations {
 		key := mut.GetKey()
 		val := mut.GetValue()
@@ -212,8 +211,8 @@ func (server *Server) KvPrewrite(_ context.Context, req *kvrpcpb.PrewriteRequest
 			// check lock
 			if lock, err = txn.GetLock(key); err != nil {
 				return nil, err
-			} else if lock.IsLockedFor(key, txn.StartTS, keyErrorWrap) {
-				resp.Errors = append(resp.Errors, keyErrorWrap.Error)
+			} else if lock != nil {
+				resp.Errors = append(resp.Errors, &kvrpcpb.KeyError{Locked: lock.Info(key)})
 				return resp, nil
 			}
 			// check write conflict
