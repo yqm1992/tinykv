@@ -3,6 +3,7 @@ package mvcc
 import (
 	"bytes"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/log"
 )
 
 // Scanner is used for reading multiple sequential key/value pairs from the storage layer. It is aware of the implementation
@@ -38,10 +39,11 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 	var foundVal []byte
 
 	iter := scan.iter
-	for ;iter.Valid(); iter.Next() {
+	for ;iter.Valid();  {
 		item := iter.Item()
 		// is this write is visible to txn
 		if writeTs := decodeTimestamp(item.Key()); writeTs > scan.txn.StartTS {
+			iter.Next()
 			continue
 		}
 		if val, err = item.Value(); err != nil {
@@ -52,6 +54,7 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 		}
 		// the deleted value is also visible to transaction
 		if write.Kind != WriteKindPut && write.Kind != WriteKindDelete {
+			iter.Next()
 			continue
 		}
 		foundKey = DecodeUserKey(item.Key())
@@ -65,6 +68,12 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 		iter.Seek(keyMinVersion(foundKey))
 		if iter.Valid() && bytes.Compare(DecodeUserKey(iter.Item().Key()), foundKey) == 0 {
 			iter.Next()
+		}
+		if write.Kind == WriteKindDelete {
+			log.Warnf("skip the deleted key: %v", foundKey)
+			// The found write is delete, skips it
+			foundKey = nil
+			continue
 		}
 		break
 	}
