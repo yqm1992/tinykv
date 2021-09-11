@@ -411,6 +411,7 @@ func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnS
 				}
 			} else {
 				log.Warnf("the lock of transaction(startTs: %v) is alive !", txn.StartTS)
+				resp.LockTtl = lock.Ttl - (currentPhysicTime - lockPhysicTime)
 			}
 		}
 	}
