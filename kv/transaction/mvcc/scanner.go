@@ -3,6 +3,7 @@ package mvcc
 import (
 	"bytes"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
+	"github.com/pingcap-incubator/tinykv/log"
 )
 
 // Scanner is used for reading multiple sequential key/value pairs from the storage layer. It is aware of the implementation
@@ -59,7 +60,7 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 		foundKey = DecodeUserKey(item.Key())
 		if write.Kind == WriteKindPut {
 			if val, err = scan.txn.Reader.GetCF(engine_util.CfDefault, EncodeKey(foundKey, write.StartTS)); err != nil {
-				return nil, nil, err
+				log.Fatal(err)
 			}
 			foundVal = val
 		}
