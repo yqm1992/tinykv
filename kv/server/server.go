@@ -407,6 +407,7 @@ func (server *Server) KvCheckTxnStatus(_ context.Context, req *kvrpcpb.CheckTxnS
 				} else if rollbackResp.GetError() != nil {
 					return nil, fmt.Errorf(rollbackResp.Error.GetAbort())
 				} else {
+					resp.LockTtl = lock.Ttl - (currentPhysicTime - lockPhysicTime)
 					resp.Action = kvrpcpb.Action_TTLExpireRollback
 				}
 			} else {
