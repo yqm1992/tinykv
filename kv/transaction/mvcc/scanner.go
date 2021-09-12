@@ -12,20 +12,20 @@ import (
 type Scanner struct {
 	// Your Data Here (4C).
 	txn *MvccTxn
-	iter engine_util.DBIterator
+	writeIter engine_util.DBIterator
 }
 
 // NewScanner creates a new scanner ready to read from the snapshot in txn.
 func NewScanner(startKey []byte, txn *MvccTxn) *Scanner {
 	// Your Code Here (4C).
-	iter := txn.Reader.IterCF(engine_util.CfWrite)
-	iter.Seek(keyMaxVersion(startKey))
-	return &Scanner{txn: txn, iter: iter}
+	writeIter := txn.Reader.IterCF(engine_util.CfWrite)
+	writeIter.Seek(keyMaxVersion(startKey))
+	return &Scanner{txn: txn, writeIter: writeIter}
 }
 
 func (scan *Scanner) Close() {
 	// Your Code Here (4C).
-	scan.iter.Close()
+	scan.writeIter.Close()
 	scan.txn = nil
 }
 
@@ -38,12 +38,12 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 	var foundKey []byte
 	var foundVal []byte
 
-	iter := scan.iter
-	for ;iter.Valid();  {
-		item := iter.Item()
+	writeIter := scan.writeIter
+	for ;writeIter.Valid();  {
+		item := writeIter.Item()
 		// is this write is visible to txn
 		if writeTs := decodeTimestamp(item.Key()); writeTs > scan.txn.StartTS {
-			iter.Next()
+			writeIter.Next()
 			continue
 		}
 		if val, err = item.Value(); err != nil {
@@ -54,7 +54,7 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 		}
 		// the deleted value is also visible to transaction
 		if write.Kind != WriteKindPut && write.Kind != WriteKindDelete {
-			iter.Next()
+			writeIter.Next()
 			continue
 		}
 		foundKey = DecodeUserKey(item.Key())
@@ -65,9 +65,9 @@ func (scan *Scanner) Next() ([]byte, []byte, error) {
 			foundVal = val
 		}
 		// skip foundKey's old versions
-		iter.Seek(keyMinVersion(foundKey))
-		if iter.Valid() && bytes.Compare(DecodeUserKey(iter.Item().Key()), foundKey) == 0 {
-			iter.Next()
+		writeIter.Seek(keyMinVersion(foundKey))
+		if writeIter.Valid() && bytes.Compare(DecodeUserKey(writeIter.Item().Key()), foundKey) == 0 {
+			writeIter.Next()
 		}
 		if write.Kind == WriteKindDelete {
 			// The found write is delete, skips it
