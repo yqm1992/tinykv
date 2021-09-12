@@ -5,7 +5,6 @@ import (
 	"github.com/pingcap-incubator/tinykv/kv/storage"
 	"github.com/pingcap-incubator/tinykv/kv/util/codec"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
-	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 	"github.com/pingcap-incubator/tinykv/scheduler/pkg/tsoutil"
 )
@@ -99,7 +98,6 @@ func (txn *MvccTxn) GetValue(key []byte) ([]byte, error) {
 			return nil, err2
 		}
 		if write.Kind != WriteKindPut && write.Kind != WriteKindDelete {
-			log.Fatalf("found a write with kind: %v", write.Kind)
 			continue
 		}
 		if write.Kind == WriteKindPut {
