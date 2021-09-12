@@ -2,10 +2,8 @@ package mvcc
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
-	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
 )
 
 // Scanner is used for reading multiple sequential key/value pairs from the storage layer. It is aware of the implementation
@@ -95,9 +93,6 @@ func (scan *Scanner) nextLock() (lockKey []byte, err error) {
 	var lock *Lock
 	var val []byte
 
-	type KeyErrorWrap struct{
-		Error       *kvrpcpb.KeyError
-	}
 	lockIter := scan.lockIter
 	lockKey = lockIter.Item().Key()
 	if lockKey == nil {
@@ -110,9 +105,9 @@ func (scan *Scanner) nextLock() (lockKey []byte, err error) {
 		log.Fatal(err)
 	}
 	lockIter.Next()
-	wrap := &KeyErrorWrap{}
-	if lock.IsLockedFor(lockKey, scan.txn.StartTS, wrap) {
-		return lockKey, fmt.Errorf("the key is locked")
+	keyErr := &KeyError{}
+	if lock.IsLockedFor(lockKey, scan.txn.StartTS, keyErr) {
+		return lockKey, keyErr
 	}
 	return lockKey, nil
 }
