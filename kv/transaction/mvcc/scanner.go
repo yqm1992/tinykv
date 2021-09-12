@@ -2,7 +2,6 @@ package mvcc
 
 import (
 	"bytes"
-	"fmt"
 	"github.com/pingcap-incubator/tinykv/kv/util/engine_util"
 	"github.com/pingcap-incubator/tinykv/log"
 	"github.com/pingcap-incubator/tinykv/proto/pkg/kvrpcpb"
@@ -112,7 +111,7 @@ func (scan *Scanner) nextLock() (lockKey []byte, err error) {
 	lockIter.Next()
 	wrap := &KeyErrorWrap{}
 	if lock.IsLockedFor(lockKey, scan.txn.StartTS, wrap) {
-		return lockKey, fmt.Errorf("the key is locked")
+		return lockKey, &KeyError{*wrap.Error}
 	}
 	return lockKey, nil
 }
