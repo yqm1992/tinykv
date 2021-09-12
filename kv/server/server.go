@@ -324,8 +324,11 @@ func (server *Server) KvScan(_ context.Context, req *kvrpcpb.ScanRequest) (*kvrp
 
 	for i := uint32(0); i < req.GetLimit(); i++ {
 		if key, val, err := scan.Next(); err != nil {
-			keyError := &kvrpcpb.KeyError{Retryable: err.Error()}
-			resp.Pairs = append(resp.Pairs, &kvrpcpb.KvPair{Error: keyError})
+			if ke, ok := err.(*mvcc.KeyError); ok {
+				resp.Pairs = append(resp.Pairs, &kvrpcpb.KvPair{Error: &ke.KeyError})
+			} else {
+				log.Fatalf("Expected a mvcc.KeyError, but got another error: %v", ke)
+			}
 		} else if key != nil{
 			if val != nil {
 				resp.Pairs = append(resp.Pairs, &kvrpcpb.KvPair{Key: key, Value: val})
