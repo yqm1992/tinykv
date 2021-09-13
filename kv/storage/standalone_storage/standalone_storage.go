@@ -12,10 +12,12 @@ import (
 // StandAloneStorage is an implementation of `Storage` for a single-node TinyKV instance. It does not
 // communicate with other nodes and all data is stored locally.
 type StandAloneStorage struct {
+	// Your Data Here (1).
 	db *badger.DB
 }
 
 func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
+	// Your Code Here (1).
 	opts := badger.DefaultOptions
 	opts.Dir = conf.DBPath
 	opts.ValueDir = conf.DBPath
@@ -27,19 +29,23 @@ func NewStandAloneStorage(conf *config.Config) *StandAloneStorage {
 }
 
 func (s *StandAloneStorage) Start() error {
+	// Your Code Here (1).
 	return nil
 }
 
 func (s *StandAloneStorage) Stop() error {
+	// Your Code Here (1).
 	s.db.Close()
 	return nil
 }
 
 func (s *StandAloneStorage) Reader(ctx *kvrpcpb.Context) (storage.StorageReader, error) {
+	// Your Code Here (1).
 	return &StandAloneStorageReader{s, nil, nil}, nil
 }
 
 func (s *StandAloneStorage) Write(ctx *kvrpcpb.Context, batch []storage.Modify) error {
+	// Your Code Here (1).
 	if len(batch) > 0 {
 		err := s.db.Update(func(txn *badger.Txn) error {
 			for _, m := range batch {
