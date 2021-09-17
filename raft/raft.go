@@ -681,6 +681,7 @@ func (r *Raft) UpdateCommitted() bool {
 		if r.IsAcceptedByQuorum(idx) {
 			r.RaftLog.committed = idx
 			committedChanged = true
+			break
 		}
 	}
 	return committedChanged
