@@ -336,8 +336,8 @@ func (ps *PeerStorage) ApplySnapshot(snapshot *eraftpb.Snapshot, kvWB *engine_ut
 	// Your Code Here (2C).
 	snapshotIndex := snapshot.Metadata.Index
 	snapshotTerm := snapshot.Metadata.Term
-
-	ps.clearMeta(kvWB, raftWB)
+	// clear the log before the point of snapshotIndex
+	ClearMeta(ps.Engines, kvWB, raftWB, ps.region.Id, snapshotIndex)
 	// set applyState
 	ps.applyState.AppliedIndex = snapshotIndex
 	ps.applyState.TruncatedState.Index = snapshotIndex
