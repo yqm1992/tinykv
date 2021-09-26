@@ -1026,6 +1026,17 @@ func (d *peerMsgHandler) proposeRaftCommand(msg *raft_cmdpb.RaftCmdRequest, cb *
 	}
 	// TODO need to check if key is in range [startKey, endKey)
 
+	if msg.AdminRequest != nil && msg.AdminRequest.TransferLeader != nil {
+		log.Warnf("%v transfer to: %v", d.PeerId(), msg.AdminRequest.TransferLeader.Peer.GetId())
+		d.RaftGroup.TransferLeader(msg.AdminRequest.TransferLeader.Peer.GetId())
+		resp := &raft_cmdpb.RaftCmdResponse{
+			Header: &raft_cmdpb.RaftResponseHeader{},
+			AdminResponse: &raft_cmdpb.AdminResponse{CmdType: raft_cmdpb.AdminCmdType_TransferLeader},
+		}
+		cb.Done(resp)
+		return
+	}
+
 	data, err2 := msg.Marshal()
 	if err2 != nil {
 		cb.Done(ErrResp(err2))
